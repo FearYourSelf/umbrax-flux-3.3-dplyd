@@ -1,0 +1,199 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Umbrax Flux 3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #020617; /* slate-950 */
+        color: white;
+        overflow-x: hidden;
+        /* Custom Sci-Fi Cursor (Circle with Dot) */
+        cursor: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="%2306b6d4" stroke-width="1.5" fill="none" /><circle cx="12" cy="12" r="2" fill="white" /></svg>') 12 12, auto;
+      }
+      
+      /* Force the same cursor on all clickable elements */
+      button, a, input, select, .cursor-pointer, label {
+        cursor: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="%2306b6d4" stroke-width="1.5" fill="none" /><circle cx="12" cy="12" r="2" fill="white" /></svg>') 12 12, pointer !important;
+      }
+
+      h1, h2, h3, .brand-font {
+        font-family: 'Space Grotesk', sans-serif;
+      }
+
+      /* Enhanced Glassmorphism */
+      .glass-panel {
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+      }
+      
+      /* Custom Scrollbar - Sci-Fi Style */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #020617; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #1e293b; 
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #06b6d4; /* Cyan hover */
+      }
+      
+      /* Animations */
+      @keyframes scanline {
+        0% { transform: translateY(-100%); }
+        100% { transform: translateY(100%); }
+      }
+      
+      .scanline-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(to bottom, transparent 50%, rgba(0, 255, 255, 0.03) 50%);
+        background-size: 100% 4px;
+        pointer-events: none;
+        z-index: 50;
+        mix-blend-mode: overlay;
+      }
+
+      @keyframes hologram-reveal {
+        0% {
+          opacity: 0;
+          transform: scale(0.95) translateY(10px);
+          filter: blur(10px) brightness(2);
+        }
+        30% {
+          opacity: 1;
+          filter: blur(4px) brightness(1.5);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+          filter: blur(0) brightness(1);
+        }
+      }
+
+      @keyframes breathe-glow {
+        0%, 100% { transform: scale(1); opacity: 0.5; box-shadow: 0 0 20px rgba(6,182,212, 0.2); }
+        50% { transform: scale(1.1); opacity: 0.8; box-shadow: 0 0 40px rgba(6,182,212, 0.5); }
+      }
+
+      @keyframes ping-slow {
+        75%, 100% {
+          transform: scale(2);
+          opacity: 0;
+        }
+      }
+
+      @keyframes fade-in-up {
+        0% { opacity: 0; transform: translateY(20px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+      
+      @keyframes grid-movement {
+        0% { background-position: 0 0; }
+        100% { background-position: 50px 50px; }
+      }
+
+      @keyframes warp-in {
+        0% { opacity: 0; transform: scale(0.8) translateZ(-100px); filter: blur(20px); }
+        50% { opacity: 1; filter: blur(0px); }
+        100% { transform: scale(1) translateZ(0); }
+      }
+
+      @keyframes iris-open {
+        0% { clip-path: circle(0% at 50% 50%); }
+        100% { clip-path: circle(150% at 50% 50%); }
+      }
+      
+      @keyframes glitch {
+        0% { transform: translate(0) }
+        20% { transform: translate(-2px, 2px) }
+        40% { transform: translate(-2px, -2px) }
+        60% { transform: translate(2px, 2px) }
+        80% { transform: translate(2px, -2px) }
+        100% { transform: translate(0) }
+      }
+
+      /* Background Utilities */
+      .bg-cyber-grid {
+        background-size: 50px 50px;
+        background-image: 
+          linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        animation: grid-movement 20s linear infinite;
+      }
+
+      .animate-ping-slow {
+        animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+      }
+
+      .animate-hologram {
+        animation: hologram-reveal 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+
+      .animate-breathe {
+        animation: breathe-glow 4s ease-in-out infinite;
+      }
+
+      .animate-fade-in {
+        animation: fade-in 0.3s ease-out forwards;
+      }
+
+      .animate-fade-in-up {
+        animation: fade-in-up 0.6s ease-out forwards;
+      }
+      
+      .animate-warp-in {
+        animation: warp-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      .animate-iris {
+        animation: iris-open 1.2s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+      }
+      
+      .animate-glitch {
+        animation: glitch 0.2s linear infinite;
+      }
+
+      /* Utility for inputs to remove autocomplete background */
+      input:-webkit-autofill,
+      input:-webkit-autofill:hover, 
+      input:-webkit-autofill:focus, 
+      input:-webkit-autofill:active{
+          -webkit-box-shadow: 0 0 0 30px #0f172a inset !important;
+          -webkit-text-fill-color: white !important;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
