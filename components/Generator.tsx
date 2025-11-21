@@ -13,7 +13,7 @@ import {
   ImageAdjustments
 } from '../types';
 import { generateImage, editImage, getPromptEnhancements } from '../services/geminiService';
-import { extendImage, applyImageAdjustments, applyOutline, cropImage } from '../services/imageUtils';
+import { extendImage, applyImageAdjustments, applyOutline, cropImage, applyWatermark } from '../services/imageUtils';
 import Loader from './Loader';
 
 interface GeneratorProps {
@@ -27,10 +27,17 @@ interface LogEntry {
     message: string;
 }
 
-// --- COMPONENT: TILT PANEL (3D Holographic Effect) ---
-const TiltPanel: React.FC<{ children: React.ReactNode, className?: string }> = ({ children, className = "" }) => {
+// --- COMPONENT: TILT PANEL (3D Holographic Effect + Glare) ---
+interface TiltPanelProps {
+    children: React.ReactNode;
+    className?: string;
+    intensity?: number;
+}
+
+const TiltPanel: React.FC<TiltPanelProps> = ({ children, className = "", intensity = 2 }) => {
     const ref = useRef<HTMLDivElement>(null);
     const [transform, setTransform] = useState("perspective(1000px) rotateX(0deg) rotateY(0deg)");
+    const [glare, setGlare] = useState({ x: 50, y: 50, opacity: 0 });
     
     const handleMouseMove = (e: React.MouseEvent) => {
         if (!ref.current) return;
@@ -40,15 +47,21 @@ const TiltPanel: React.FC<{ children: React.ReactNode, className?: string }> = (
         const centerX = rect.width / 2;
         const centerY = rect.height / 2;
         
-        // Calculate rotation (reduced intensity from 3 to 1 degree)
-        const rotateX = ((y - centerY) / centerY) * -1;
-        const rotateY = ((x - centerX) / centerX) * 1;
+        // Calculate rotation using intensity prop
+        const rotateX = ((y - centerY) / centerY) * -intensity;
+        const rotateY = ((x - centerX) / centerX) * intensity;
         
         setTransform(`perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.01)`);
+        
+        // Calculate Glare (Inverse position)
+        const glareX = (x / rect.width) * 100;
+        const glareY = (y / rect.height) * 100;
+        setGlare({ x: glareX, y: glareY, opacity: 0.4 });
     };
 
     const handleMouseLeave = () => {
         setTransform("perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1)");
+        setGlare(prev => ({ ...prev, opacity: 0 }));
     };
 
     return (
@@ -56,9 +69,18 @@ const TiltPanel: React.FC<{ children: React.ReactNode, className?: string }> = (
             ref={ref}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
-            className={`transition-transform duration-200 ease-out ${className}`}
+            className={`transition-transform duration-200 ease-out relative overflow-hidden ${className}`}
             style={{ transform }}
         >
+            {/* Dynamic Glare Overlay */}
+            <div 
+                className="absolute inset-0 pointer-events-none z-20 transition-opacity duration-500"
+                style={{
+                    background: `radial-gradient(circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,0.15), transparent 60%)`,
+                    opacity: glare.opacity,
+                    mixBlendMode: 'overlay'
+                }}
+            />
             {children}
         </div>
     );
@@ -115,6 +137,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   
+  // Reactive Input State
+  const [inputIntensity, setInputIntensity] = useState(0);
+
   // Default Session ID (Random if not provided)
   const [defaultId] = useState(initialId || Math.floor(10000000000 + Math.random() * 90000000000).toString());
 
@@ -131,6 +156,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const [gallery, setGallery] = useState<GeneratedImage[]>([]);
   const [showGallery, setShowGallery] = useState(false);
 
+  // Void Mode State
+  const [isVoidMode, setIsVoidMode] = useState(false);
+
   // Comparison Mode
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [compareSliderPos, setCompareSliderPos] = useState(50);
@@ -145,8 +173,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   // Editing State
   const [isTargetMode, setIsTargetMode] = useState(false);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState<{x: number, y: number} | null>(null);
+  const [isDrawingBox, setIsDrawingBox] = useState(false);
+  const [drawStart, setDrawStart] = useState<{x: number, y: number} | null>(null);
 
   // View Control State (Zoom/Pan)
   const [zoom, setZoom] = useState(1);
@@ -193,6 +221,14 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const imageWrapperRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null); // Explicit ref for the image element
+
+  // Update Input Intensity based on prompt length
+  useEffect(() => {
+      const length = prompt.length;
+      // Max intensity at 100 chars
+      setInputIntensity(Math.min(length / 100, 1));
+  }, [prompt]);
 
   // Helper to log to console
   const logToConsole = (message: string | object, type: LogEntry['type'] = 'info') => {
@@ -250,15 +286,27 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   // Handle Console Commands
   const handleConsoleCommand = (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
-          const cmd = consoleInput.trim().toLowerCase();
-          logToConsole(`> ${consoleInput}`, 'info');
+          const fullCmd = consoleInput.trim();
+          if (!fullCmd) return;
+          
+          // Split command and args
+          const args = fullCmd.split(' ');
+          const cmd = args[0].toLowerCase();
+          
+          logToConsole(`> ${fullCmd}`, 'info');
           setConsoleInput('');
 
           switch(cmd) {
               case 'help':
-                  logToConsole("COMMANDS: HELP, SYS_STATUS, CLEAR, VER, FLUX_CHECK, PURGE, LS, PING, OVERRIDE, UPTIME", 'system');
+                  logToConsole("AVAILABLE COMMANDS:", 'system');
+                  logToConsole("CORE: help, clear, ver, uptime, date, whoami, exit", 'info');
+                  logToConsole("NET:  ping, trace, scan, ipconfig", 'info');
+                  logToConsole("SYS:  sys_status, top, ps, flux_check, purge, reboot", 'info');
+                  logToConsole("FILE: ls, cat, mount, decrypt", 'info');
+                  logToConsole("MISC: matrix, weather, quote, neofetch, override, sudo", 'info');
                   break;
               case 'clear':
+              case 'cls':
                   setConsoleLogs([]);
                   logToConsole("CONSOLE BUFFER CLEARED", 'success');
                   break;
@@ -269,6 +317,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   logToConsole(`FLUX CAPACITOR: ONLINE`, 'success');
                   break;
               case 'ver':
+              case 'version':
                   logToConsole("UMBRAX FLUX v3.0.1 (STABLE)", 'info');
                   logToConsole("BUILD: 2024-REL-C", 'info');
                   break;
@@ -285,6 +334,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   logToConsole("drwxr-xr-x  admin system  /usr/models/weights", 'info');
                   logToConsole("-rw-r--r--  root  root    config.sys", 'info');
                   logToConsole("-rw-r--r--  user  group   session_key.pem", 'info');
+                  logToConsole("-r--r--r--  root  root    readme.txt", 'info');
                   break;
               case 'override':
                   logToConsole("SECURITY OVERRIDE INITIATED...", 'warn');
@@ -292,7 +342,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   break;
               case 'uptime':
                   const uptime = Math.floor(performance.now() / 1000);
-                  logToConsole(`SYSTEM UPTIME: ${uptime} SECONDS`, 'info');
+                  const mins = Math.floor(uptime / 60);
+                  logToConsole(`SYSTEM UPTIME: ${mins}m ${uptime % 60}s`, 'info');
                   break;
               case 'matrix':
                   logToConsole("WAKE UP, NEO...", 'success');
@@ -300,10 +351,122 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   setTimeout(() => logToConsole("FOLLOW THE WHITE RABBIT.", 'success'), 2000);
                   break;
               case 'ping':
-                  logToConsole("PING nsd-core.local (192.168.1.1): 56 data bytes", 'info');
+                  const host = args[1] || "nsd-core.local";
+                  logToConsole(`PING ${host} (192.168.1.1): 56 data bytes`, 'info');
                   setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=0 time=0.042 ms", 'info'), 300);
                   setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=1 time=0.038 ms", 'info'), 600);
                   setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=2 time=0.045 ms", 'info'), 900);
+                  break;
+              case 'whoami':
+                  logToConsole("uid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon)", 'info');
+                  break;
+              case 'date':
+                  logToConsole(new Date().toUTCString(), 'info');
+                  break;
+              case 'exit':
+                  setIsConsoleOpen(false);
+                  break;
+              case 'reboot':
+                  logToConsole("SYSTEM REBOOT INITIATED...", 'warn');
+                  logToConsole("SAVING SESSION STATE...", 'info');
+                  setTimeout(() => {
+                      setConsoleLogs([]);
+                      logToConsole("UMBRAX KERNEL INITIALIZED...", 'system');
+                      logToConsole("REBOOT SUCCESSFUL. READY.", 'success');
+                  }, 2500);
+                  break;
+              case 'ps':
+                  logToConsole("PID   USER     TIME  COMMAND", 'system');
+                  logToConsole("1     root     0:00  init", 'info');
+                  logToConsole("42    root     1:23  flux_kernel_d", 'info');
+                  logToConsole("88    daemon   0:45  gemini_bridge", 'info');
+                  logToConsole("101   user     0:12  input_handler", 'info');
+                  break;
+              case 'top':
+                   logToConsole("Tasks: 142 total, 1 running, 141 sleeping", 'info');
+                   logToConsole("CPU:  [||||||||||||||||||    ] 85.3% user, 4.2% sys", 'warn');
+                   logToConsole("Mem:  [||||||||              ] 4.2G/16G", 'info');
+                   break;
+              case 'cat':
+                  const file = args[1];
+                  if (!file) {
+                      logToConsole("usage: cat [file]", 'error');
+                  } else if (file === 'config.sys') {
+                      logToConsole("FLUX_VERSION=3.0.1", 'info');
+                      logToConsole("RENDER_ENGINE=NSD-CORE", 'info');
+                      logToConsole("SAFETY_LOCK=FALSE", 'warn');
+                      logToConsole("MAX_DIMENSION=4096", 'info');
+                  } else if (file === 'session_key.pem') {
+                      logToConsole("-----BEGIN FLUX PRIVATE KEY-----", 'system');
+                      logToConsole("MIIEowIBAAKCAQEAwX...", 'info');
+                      logToConsole("...[CONTENT REDACTED FOR SECURITY]...", 'warn');
+                      logToConsole("-----END FLUX PRIVATE KEY-----", 'system');
+                  } else if (file === 'readme.txt') {
+                      logToConsole("Welcome to Umbrax Flux 3.", 'info');
+                      logToConsole("Authorized personnel only.", 'info');
+                  } else {
+                      logToConsole(`cat: ${file}: Permission denied or file not found`, 'error');
+                  }
+                  break;
+              case 'sudo':
+                  logToConsole("nsdadmin is not in the sudoers file. This incident will be reported.", 'error');
+                  break;
+              case 'neofetch':
+                  logToConsole("       /\\       OS: UmbraxOS v3.0", 'system');
+                  logToConsole("      /  \\      Kernel: 5.15.0-flux", 'system');
+                  logToConsole("     / /\\ \\     Uptime: " + Math.floor(performance.now()/1000/60) + " mins", 'system');
+                  logToConsole("    / /  \\ \\    Shell: ZSH 5.8", 'system');
+                  logToConsole("   /_/    \\_\\   CPU: Neural Core X1", 'system');
+                  logToConsole("                Memory: 128GB DDR6", 'system');
+                  break;
+              case 'scan':
+                  logToConsole("INITIATING DEEP SYSTEM SCAN...", 'info');
+                  setTimeout(() => logToConsole("SECTOR 1: INTEGRITY 100%", 'success'), 500);
+                  setTimeout(() => logToConsole("SECTOR 2: INTEGRITY 100%", 'success'), 1000);
+                  setTimeout(() => logToConsole("SECTOR 3: ANOMALY DETECTED [QUARANTINED]", 'warn'), 1500);
+                  setTimeout(() => logToConsole("SCAN COMPLETE.", 'info'), 2000);
+                  break;
+              case 'decrypt':
+                  logToConsole("ATTEMPTING DECRYPTION ON /var/secure/...", 'info');
+                  let prog = "";
+                  for(let i=0; i<5; i++) {
+                      setTimeout(() => {
+                          prog += "█";
+                          logToConsole(`DECRYPTING: [${prog.padEnd(5, '.')}]`, 'system');
+                      }, (i+1) * 400);
+                  }
+                  setTimeout(() => logToConsole("ACCESS GRANTED. FILE: 'project_omega.dat'", 'success'), 2200);
+                  break;
+              case 'weather':
+                  logToConsole("CURRENT CONDITIONS: ELECTROMAGNETIC STORM", 'warn');
+                  logToConsole("VISIBILITY: 15%", 'info');
+                  logToConsole("TEMP: 450K", 'info');
+                  break;
+              case 'mount':
+                   logToConsole("/dev/nvme0n1p1 on / type ext4 (rw,relatime)", 'info');
+                   logToConsole("/dev/sda1 on /mnt/flux_drive type exfat (rw,nosuid)", 'info');
+                   break;
+              case 'trace':
+                  logToConsole("traceroute to 8.8.8.8 (8.8.8.8), 30 hops max, 60 byte packets", 'info');
+                  setTimeout(() => logToConsole(" 1  gw.local (192.168.1.1)  0.431 ms  0.321 ms  0.401 ms", 'info'), 200);
+                  setTimeout(() => logToConsole(" 2  10.20.0.1 (10.20.0.1)  2.123 ms  2.091 ms  2.112 ms", 'info'), 400);
+                  setTimeout(() => logToConsole(" 3  * * *", 'warn'), 600);
+                  break;
+              case 'ipconfig':
+              case 'ifconfig':
+                  logToConsole("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500", 'info');
+                  logToConsole("      inet 192.168.1.42  netmask 255.255.255.0  broadcast 192.168.1.255", 'info');
+                  logToConsole("      ether 00:1a:2b:3c:4d:5e  txqueuelen 1000  (Ethernet)", 'info');
+                  break;
+              case 'quote':
+                  const quotes = [
+                      "I've seen things you people wouldn't believe.",
+                      "The sky above the port was the color of television, tuned to a dead channel.",
+                      "Reality is that which, when you stop believing in it, doesn't go away.",
+                      "We dream in code.",
+                      "Visuals are just math with feeling."
+                  ];
+                  logToConsole(`"${quotes[Math.floor(Math.random() * quotes.length)]}"`, 'info');
                   break;
               default:
                   if (cmd !== '') logToConsole(`UNKNOWN COMMAND: "${cmd}"`, 'error');
@@ -344,6 +507,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         // Force a selection box in the center that matches ratio
         setSelectionBox({ x: 10, y: 10, w: 80, h: 80 / options.customRatioValue }); 
         setIsTargetMode(true);
+        // Reset Zoom/Pan for easier editing
+        setZoom(1);
+        setPan({x:0, y:0});
     } else {
         setSelectionBox(null);
         setIsTargetMode(false);
@@ -361,7 +527,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     const handleWheelNative = (e: WheelEvent) => {
         e.preventDefault();
         const scaleAmount = -e.deltaY * 0.001;
-        setZoom(prev => Math.min(Math.max(0.5, prev + scaleAmount), 5));
+        if (!isTargetMode) { // Only zoom if not in target mode (simplifies interaction)
+            setZoom(prev => Math.min(Math.max(0.5, prev + scaleAmount), 5));
+        }
     };
 
     element.addEventListener('wheel', handleWheelNative, { passive: false });
@@ -369,7 +537,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     return () => {
         element.removeEventListener('wheel', handleWheelNative);
     };
-  }, [imageWrapperRef.current]); 
+  }, [imageWrapperRef.current, isTargetMode]); 
 
   // History Management
   const updateHistory = (newImage: GeneratedImage, isNewGeneration: boolean = false) => {
@@ -403,23 +571,148 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       logToConsole("HISTORY: REDO ACTION PERFORMED", 'info');
     }
   };
+  
+  const jumpToHistory = (index: number) => {
+      if (index >= 0 && index < history.length) {
+          setHistoryIndex(index);
+          setGeneratedImage(history[index]);
+          logToConsole(`CHRONOSPHERE JUMP: INDEX ${index}`, 'info');
+      }
+  }
 
-  const loadFromGallery = (img: GeneratedImage) => {
-    setGeneratedImage(img);
-    setHistory([img]);
-    setHistoryIndex(0);
-    setShowGallery(false);
-    logToConsole(`GALLERY: IMAGE ID ${img.id} LOADED`, 'success');
+  const handleGenerate = async () => {
+    if (!prompt.trim() && !uploadedImage) return;
+    
+    setIsLoading(true);
+    setProcessingMessage("INITIATING SYNTHESIS...");
+    setError(null);
+    setShowSuggestions(false);
+    
+    logToConsole(`INITIATING GENERATION: "${prompt.substring(0, 30)}..."`, 'info');
+
+    try {
+      const finalRatio = options.aspectRatio === AspectRatio.CUSTOM 
+        ? AspectRatio.SQUARE // Generate square then crop
+        : options.aspectRatio;
+
+      const image = await generateImage(
+        prompt, 
+        { ...options, aspectRatio: finalRatio },
+        uploadedImage || undefined
+      );
+      
+      // Automatically apply watermark
+      const watermarkedBase64 = await applyWatermark(image.base64);
+      const finalImage = { ...image, base64: watermarkedBase64 };
+
+      updateHistory(finalImage, true);
+      logToConsole("GENERATION COMPLETE. IMAGE RENDERED.", 'success');
+      
+    } catch (err: any) {
+      const errorMessage = err.message || "Unknown error";
+      console.error(err);
+      logToConsole(`CRITICAL ERROR: ${JSON.stringify(err)}`, 'error');
+      
+      // Thematic error message for UI (Still logged, but UI shows full error now per request)
+      setError(errorMessage); // Show real error per user request
+    } finally {
+      setIsLoading(false);
+      setProcessingMessage("");
+    }
   };
 
-  const deleteFromGallery = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setGallery(prev => prev.filter(img => img.id !== id));
-    logToConsole(`GALLERY: IMAGE ID ${id} DELETED`, 'warn');
+  const handleEdit = async () => {
+    if (!generatedImage || !editPrompt.trim()) return;
+    
+    setIsLoading(true);
+    setProcessingMessage("MODULATING VISUAL DATA...");
+    setError(null);
+    logToConsole(`INITIATING EDIT: "${editPrompt.substring(0, 30)}..."`, 'info');
+
+    try {
+      // If selection box is active, prepend instructions
+      let finalPrompt = editPrompt;
+      if (selectionBox) {
+         // Calculate percentages
+         const top = selectionBox.y.toFixed(1);
+         const left = selectionBox.x.toFixed(1);
+         const width = selectionBox.w.toFixed(1);
+         const height = selectionBox.h.toFixed(1);
+         
+         finalPrompt = `Apply this change EXCLUSIVELY to the region bounded by Top: ${top}%, Left: ${left}%, Width: ${width}%, Height: ${height}%. Task: ${editPrompt}`;
+      }
+
+      const image = await editImage(generatedImage, finalPrompt, options);
+      
+      // Re-apply watermark on edited image
+      const watermarkedBase64 = await applyWatermark(image.base64);
+      const finalImage = { ...image, base64: watermarkedBase64 };
+
+      updateHistory(finalImage);
+      setEditPrompt('');
+      if (!options.customRatioValue) {
+          setSelectionBox(null);
+          setIsTargetMode(false);
+      }
+      logToConsole("EDIT COMPLETE. MATRIX UPDATED.", 'success');
+    } catch (err: any) {
+      const errorMessage = err.message || "Unknown error";
+      console.error(err);
+      logToConsole(`EDIT ERROR: ${JSON.stringify(err)}`, 'error');
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+      setProcessingMessage("");
+    }
   };
 
-  // Presets Logic
-  const savePreset = () => {
+  const handleOutpaint = async () => {
+    if (!generatedImage) return;
+    setIsLoading(true);
+    setProcessingMessage("EXPANDING CANVAS BOUNDARIES...");
+    
+    try {
+      const extendedBase64 = await extendImage(generatedImage.base64);
+      const extendedImage: GeneratedImage = {
+        ...generatedImage,
+        id: Date.now().toString(),
+        base64: extendedBase64,
+        timestamp: Date.now()
+      };
+      // We treat this as a new edit in the history
+      updateHistory(extendedImage);
+      
+      // Now ask AI to fill it
+      const filledImage = await editImage(extendedImage, "Seamlessly extend the scene into the empty dark area, matching the style and lighting of the central image.", options);
+      
+      // Re-apply watermark
+      const watermarkedBase64 = await applyWatermark(filledImage.base64);
+      const finalImage = { ...filledImage, base64: watermarkedBase64 };
+
+      updateHistory(finalImage); // Update again with filled version
+      logToConsole("OUTPAINTING COMPLETE. HORIZON EXPANDED.", 'success');
+    } catch (err: any) {
+       logToConsole(`OUTPAINT ERROR: ${JSON.stringify(err)}`, 'error');
+       setError("EXPANSION FAILED: BOUNDARY ERROR");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (generatedImage) {
+      const link = document.createElement('a');
+      link.href = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
+      link.download = `flux_synthesis_${generatedImage.id}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setShowDownloadConfirm(false);
+      logToConsole(`ASSET DOWNLOADED: flux_synthesis_${generatedImage.id}.png`, 'success');
+    }
+  };
+
+  const handlePresetSave = () => {
     if (!newPresetName.trim()) return;
     const newPreset: Preset = {
       id: Date.now().toString(),
@@ -431,7 +724,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     localStorage.setItem('infogenius_presets', JSON.stringify(updatedPresets));
     setNewPresetName('');
     setShowPresetSave(false);
-    logToConsole(`PRESET SAVED: ${newPreset.name}`, 'success');
+    logToConsole(`PRESET SAVED: ${newPresetName}`, 'success');
   };
 
   const loadPreset = (preset: Preset) => {
@@ -439,1031 +732,729 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     setPresetDropdownOpen(false);
     logToConsole(`PRESET LOADED: ${preset.name}`, 'info');
   };
+  
+  const deletePreset = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const updated = presets.filter(p => p.id !== id);
+      setPresets(updated);
+      localStorage.setItem('infogenius_presets', JSON.stringify(updated));
+      logToConsole(`PRESET DELETED: ${id}`, 'warn');
+  }
 
-  const deletePreset = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const updatedPresets = presets.filter(p => p.id !== id);
-    setPresets(updatedPresets);
-    localStorage.setItem('infogenius_presets', JSON.stringify(updatedPresets));
-    logToConsole(`PRESET DELETED`, 'warn');
-  };
-
-  // Image Upload Handler
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      setUploadedImage(result);
-      logToConsole(`IMAGE UPLOADED: ${file.name}`, 'success');
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const clearUploadedImage = () => {
-    setUploadedImage(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    logToConsole("UPLOAD BUFFER CLEARED", 'info');
-  };
-
-  // Generation Logic
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
-    setIsLoading(true);
-    setError(null);
-    setSelectionBox(null);
-    setShowSuggestions(false);
-    logToConsole(`INITIATING GENERATION: "${prompt.substring(0, 30)}..."`, 'info');
-
-    // Parse custom ratio if needed
-    let finalOptions = { ...options };
-    if (options.aspectRatio === AspectRatio.CUSTOM) {
-        const parts = customRatioInput.split(':').map(Number);
-        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            finalOptions.customRatioValue = parts[0] / parts[1];
-        } else {
-            const msg = "Invalid Custom Ratio. Use format W:H (e.g., 21:9)";
-            setError(msg); // Visual error
-            logToConsole(msg, 'error'); // Log error
-            setIsLoading(false);
-            return;
-        }
-    }
-
-    try {
-      // If uploaded image exists, pass it to the service (stripping the data URL prefix)
-      const inputImageBase64 = uploadedImage ? uploadedImage.split(',')[1] : undefined;
+  // --- POINTER EVENT HANDLERS FOR IMAGE INTERACTION (Pan vs Draw Box) ---
+  const handlePointerDown = (e: React.PointerEvent) => {
+      e.preventDefault(); // Prevent native image dragging
+      if (!generatedImage) return;
       
-      if (inputImageBase64) logToConsole("MULTIMODAL INPUT DETECTED", 'info');
+      // Capture pointer on the container to track movement outside
+      e.currentTarget.setPointerCapture(e.pointerId);
 
-      const rawImg = await generateImage(prompt, finalOptions, inputImageBase64);
-      const imgWithId = { ...rawImg, id: Date.now().toString() };
-      updateHistory(imgWithId, true);
-      logToConsole("GENERATION COMPLETE. IMAGE RENDERED.", 'success');
-      
-      // Clear uploaded image after successful generation
-      if (inputImageBase64) {
-        clearUploadedImage();
-      }
-    } catch (err: any) {
-      const realErrorMessage = err.message || JSON.stringify(err);
-      
-      // Log the FULL error object to the console
-      logToConsole(`CRITICAL ERROR: ${realErrorMessage}`, 'error');
-      
-      // Check if it's a quota error to show a specific thematic message in UI
-      if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429") || realErrorMessage.includes("RESOURCE_EXHAUSTED")) {
-          setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
-          if (realErrorMessage.includes("limit: 0")) {
-             logToConsole("ADVISORY: FREE TIER LIMIT FOR THIS MODEL IS 0. ENABLE BILLING IN GOOGLE CLOUD CONSOLE TO UNLOCK QUOTA.", 'warn');
-          }
+      if (isTargetMode && imageRef.current) {
+          // DRAW BOX LOGIC - Relative to Image Element
+          const rect = imageRef.current.getBoundingClientRect();
+          const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+          const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+          
+          // Start drawing
+          setIsDrawingBox(true);
+          setDrawStart({ x: xPct, y: yPct });
+          setSelectionBox({ x: xPct, y: yPct, w: 0, h: 0 });
       } else {
-          // Show a random thematic error for other issues
-          const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
-          setError(randomError);
+          // PAN LOGIC
+          setIsPanning(true);
+          setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
       }
-    } finally {
-      setIsLoading(false);
-    }
   };
 
-  const handlePromptSuggest = async () => {
-    if (!prompt.trim()) return;
-    setIsLoading(true);
-    logToConsole("QUERYING AI FOR PROMPT ENHANCEMENTS...", 'info');
-    try {
-        const sugs = await getPromptEnhancements(prompt);
-        setSuggestions(sugs);
-        setShowSuggestions(true);
-        logToConsole("SUGGESTIONS RECEIVED", 'success');
-    } catch (e: any) {
-        const msg = e.message || String(e);
-        logToConsole(`SUGGESTION FAILED: ${msg}`, 'error');
-    } finally {
-        setIsLoading(false);
-    }
+  const handlePointerMove = (e: React.PointerEvent) => {
+      e.preventDefault(); // Prevent native behaviors
+      if (!generatedImage) return;
+
+      if (isTargetMode && isDrawingBox && drawStart && imageRef.current) {
+          // DRAW BOX LOGIC - Relative to Image Element
+          const rect = imageRef.current.getBoundingClientRect();
+          let currX = ((e.clientX - rect.left) / rect.width) * 100;
+          let currY = ((e.clientY - rect.top) / rect.height) * 100;
+          
+          // Constrain to 0-100
+          currX = Math.max(0, Math.min(100, currX));
+          currY = Math.max(0, Math.min(100, currY));
+
+          const newX = Math.min(drawStart.x, currX);
+          const newY = Math.min(drawStart.y, currY);
+          const newW = Math.abs(currX - drawStart.x);
+          const newH = Math.abs(currY - drawStart.y);
+
+          setSelectionBox({ x: newX, y: newY, w: newW, h: newH });
+
+      } else if (isPanning) {
+          // PAN LOGIC
+          setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+      }
   };
 
-  const handleEdit = async () => {
-    if (!editPrompt.trim() || !generatedImage) return;
-    setIsLoading(true);
-    setError(null);
-    logToConsole(`INITIATING EDIT: "${editPrompt.substring(0, 30)}..."`, 'info');
-
-    try {
-      let finalEditPrompt = editPrompt;
-      if (selectionBox) {
-        const { x, y, w, h } = selectionBox;
-        finalEditPrompt = `${editPrompt}. IMPORTANT: Apply this change EXCLUSIVELY to the region bounded by Top: ${Math.round(y)}%, Left: ${Math.round(x)}%, Bottom: ${Math.round(y + h)}%, Right: ${Math.round(x + w)}%. Preserve the rest.`;
-        logToConsole(`REGION LOCK ACTIVE: [${Math.round(x)},${Math.round(y)}]`, 'warn');
+  const handlePointerUp = (e: React.PointerEvent) => {
+      e.preventDefault();
+      if (e.currentTarget) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
       }
+      setIsPanning(false);
+      setIsDrawingBox(false);
+      setDrawStart(null);
+  };
 
-      const rawImg = await editImage(generatedImage, finalEditPrompt, options);
-      const imgWithId = { ...rawImg, id: Date.now().toString() };
-      updateHistory(imgWithId, false);
-      setEditPrompt(''); 
-      setSelectionBox(null);
-      setIsTargetMode(false);
-      logToConsole("EDIT COMPLETE", 'success');
-    } catch (err: any) {
-      const realErrorMessage = err.message || JSON.stringify(err);
-      logToConsole(`EDIT FAILED: ${realErrorMessage}`, 'error');
-      
-      if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
-          setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
+  // Toggle Target Mode: Reset view for easy drawing
+  const toggleTargetMode = () => {
+      const newMode = !isTargetMode;
+      setIsTargetMode(newMode);
+      if (newMode) {
+          setZoom(1);
+          setPan({ x: 0, y: 0 });
+          setSelectionBox(null); // Clear old box to let user draw new one
+          logToConsole("TARGET MODE ACTIVE. DRAG TO SELECT AREA.", 'info');
       } else {
-          const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
-          setError(randomError);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleOutpaint = async () => {
-    if (!generatedImage) return;
-    setIsLoading(true);
-    setError(null);
-    logToConsole("INITIATING OUTPAINTING SEQUENCE...", 'info');
-
-    try {
-        const extendedBase64 = await extendImage(generatedImage.base64, 1.5);
-        const tempImage: GeneratedImage = { ...generatedImage, base64: extendedBase64 };
-        const outpaintPrompt = "Outpainting task: The center of this image contains original content. The surrounding dark area is empty canvas. Seamlessly extend the scene into the empty area, matching the style, lighting, and perspective of the original center content.";
-        const rawImg = await editImage(tempImage, outpaintPrompt, options);
-        const imgWithId = { ...rawImg, id: Date.now().toString() };
-        updateHistory(imgWithId, false);
-        logToConsole("OUTPAINTING COMPLETE", 'success');
-    } catch (err: any) {
-        const realErrorMessage = err.message || JSON.stringify(err);
-        logToConsole(`OUTPAINT FAILED: ${realErrorMessage}`, 'error');
-        
-        if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
-             setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
-        } else {
-             const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
-             setError(randomError);
-        }
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  // Local Image Processing
-  const handleApplyFilters = async () => {
-    if (!generatedImage) return;
-    setIsLoading(true);
-    setProcessingMessage("Applying filters...");
-    logToConsole("APPLYING CLIENT-SIDE FILTERS...", 'info');
-    
-    setTimeout(async () => {
-      try {
-        const newBase64 = await applyImageAdjustments(generatedImage.base64, adjustments);
-        const newImg: GeneratedImage = {
-          ...generatedImage,
-          id: Date.now().toString(),
-          base64: newBase64,
-          timestamp: Date.now()
-        };
-        updateHistory(newImg, false);
-        setAdjustments({ brightness: 100, contrast: 100, saturation: 100, blur: 0, sepia: 0, grayscale: 0 });
-        setShowFilters(false);
-        logToConsole("FILTERS APPLIED SUCCESSFULLY", 'success');
-      } catch (e) {
-        logToConsole("FILTER ERROR", 'error');
-        setError("FILTER APPLICATION FAILED");
-      } finally {
-        setIsLoading(false);
-        setProcessingMessage("");
-      }
-    }, 100);
-  };
-
-  const handleApplyCrop = async () => {
-      if (!generatedImage || !selectionBox) return;
-      setIsLoading(true);
-      logToConsole("CROPPING IMAGE...", 'info');
-      try {
-        const newBase64 = await cropImage(generatedImage.base64, selectionBox);
-        const newImg: GeneratedImage = {
-            ...generatedImage,
-            id: Date.now().toString(),
-            base64: newBase64,
-            timestamp: Date.now()
-        };
-        updateHistory(newImg, false);
-        setSelectionBox(null);
-        setIsTargetMode(false);
-        logToConsole("CROP COMPLETE", 'success');
-      } catch (e) {
-          logToConsole("CROP FAILED", 'error');
-          setError("CROP FAILED");
-      } finally {
-          setIsLoading(false);
+          setSelectionBox(null);
+          logToConsole("TARGET MODE DISABLED.", 'info');
       }
   };
-
-  const handleApplyOutline = async () => {
-    if (!generatedImage) return;
-    setIsLoading(true);
-    setProcessingMessage("Analyzing edge geometry...");
-    logToConsole("CALCULATING EDGE GEOMETRY...", 'info');
-
-    setTimeout(async () => {
-      try {
-        const newBase64 = await applyOutline(generatedImage.base64);
-        const newImg: GeneratedImage = {
-          ...generatedImage,
-          id: Date.now().toString(),
-          base64: newBase64,
-          timestamp: Date.now()
-        };
-        updateHistory(newImg, false);
-        logToConsole("OUTLINE EFFECT RENDERED", 'success');
-      } catch (e) {
-        logToConsole("OUTLINE EFFECT FAILED", 'error');
-        setError("OUTLINE EFFECT FAILED");
-      } finally {
-        setIsLoading(false);
-        setProcessingMessage("");
-      }
-    }, 100);
-  };
-
-  const initiateDownload = () => {
-    if (!generatedImage) return;
-    setShowDownloadConfirm(true);
-  };
-
-  const performDownload = () => {
-    if (!generatedImage) return;
-    const link = document.createElement('a');
-    link.href = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
-    link.download = `umbraflux-${generatedImage.timestamp}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setShowDownloadConfirm(false);
-    logToConsole(`FILE DOWNLOADED: umbraflux-${generatedImage.timestamp}.png`, 'success');
-  };
-
-  // --- Interaction Handlers (Zoom, Pan, Selection) ---
-  const getRelativeCoords = (e: React.MouseEvent) => {
-    if (!imageWrapperRef.current) return { x: 0, y: 0 };
-    const rect = imageWrapperRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    return { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) };
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (isTargetMode) {
-        e.preventDefault();
-        e.stopPropagation(); 
-        const coords = getRelativeCoords(e);
-        setDragStart(coords);
-        setSelectionBox({ x: coords.x, y: coords.y, w: 0, h: 0 });
-        setIsDragging(true);
-    } else {
-        e.preventDefault();
-        setIsPanning(true);
-        setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging && isTargetMode && dragStart) {
-        e.preventDefault();
-        const coords = getRelativeCoords(e);
-        
-        const x = Math.min(coords.x, dragStart.x);
-        const y = Math.min(coords.y, dragStart.y);
-        let w = Math.abs(coords.x - dragStart.x);
-        let h = Math.abs(coords.y - dragStart.y);
-        setSelectionBox({ x, y, w, h });
-    } else if (isPanning) {
-        e.preventDefault();
-        setPan({
-            x: e.clientX - panStart.x,
-            y: e.clientY - panStart.y
-        });
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (isDragging) {
-        setIsDragging(false);
-        if (selectionBox && (selectionBox.w < 1 || selectionBox.h < 1)) {
-            setSelectionBox(null);
-        }
-    }
-    setIsPanning(false);
-  };
-
-  const getAspectRatioClass = (ratio: AspectRatio | string) => {
-    switch (ratio) {
-      case AspectRatio.SQUARE: return 'aspect-square max-w-[500px]';
-      case AspectRatio.LANDSCAPE: return 'aspect-video max-w-full';
-      case AspectRatio.PORTRAIT: return 'aspect-[9/16] max-h-[60vh]';
-      case AspectRatio.STANDARD: return 'aspect-[4/3] max-w-[700px]';
-      case AspectRatio.TALL: return 'aspect-[3/4] max-h-[60vh]';
-      case AspectRatio.CUSTOM: return 'aspect-square max-w-[600px]';
-      default: return 'aspect-square';
-    }
-  };
-
-  const renderAdjustmentSlider = (label: string, key: keyof ImageAdjustments, min: number, max: number, unit: string = "") => (
-    <div className="flex items-center gap-2 mb-2">
-        <span className="text-[10px] uppercase text-slate-400 w-16">{label}</span>
-        <input 
-            type="range" min={min} max={max} 
-            value={adjustments[key]}
-            onChange={(e) => setAdjustments({ ...adjustments, [key]: parseInt(e.target.value) })}
-            className="flex-1 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400 hover:bg-slate-600 transition-colors"
-        />
-        <span className="text-[10px] font-mono text-slate-300 w-8 text-right">{adjustments[key]}{unit}</span>
-    </div>
-  );
-
-  const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
-
-  // Determine Display Model Name for Footer
-  const getModelDisplayName = (m: AIModel) => {
-      switch(m) {
-          case AIModel.FLASH: return 'UMBRAX-IRIS_5.1';
-          case AIModel.IMAGEN: return 'UMBRX-GEN_2.5';
-          case AIModel.EXP_FLASH: return 'UMBRAX-BETA_2.0 (EXP)';
-          case AIModel.PRO_IMAGE: return 'UMBRAX-PRIME_3.0 (PRE)';
-          default: return 'UNKNOWN_MODEL';
-      }
-  };
-
-  const getConsoleHeight = () => {
-      switch(consoleSize) {
-          case 'small': return '300px';
-          case 'medium': return '50vh';
-          case 'full': return '100vh';
-          default: return '300px';
-      }
-  };
-
-  const footerContent = (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest select-none">
-        <div className="flex items-center gap-4">
-            {isLoading ? (
-                 <span className="flex items-center gap-2 text-amber-500 transition-colors duration-300">
-                    <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                    </span>
-                    PROCESSING DATA
-                </span>
-            ) : (
-                <span className="flex items-center gap-2 transition-colors duration-300">
-                    <span className="relative flex h-2 w-2">
-                        <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                    </span>
-                    SYSTEM READY
-                </span>
-            )}
-
-            <span className="hidden md:inline text-slate-700">|</span>
-            <span className="hidden md:inline">MODEL: {getModelDisplayName(options.model)}</span>
-            <span className="hidden md:inline text-slate-700">|</span>
-             <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
-                F&Q // SYNTHESIS CORE
-            </a>
-        </div>
-        
-        <div className="flex items-center gap-4 opacity-70">
-            <span>ID: {initialId || defaultId}</span>
-            <span className="text-slate-700">|</span>
-             {/* Terminal moved here, simplified */}
-            <button onClick={toggleConsole} className="hover:text-cyan-400 flex items-center gap-1 transition-colors opacity-50 hover:opacity-100" title="Open System Console">
-                {">_"}
-            </button>
-        </div>
-    </div>
-  );
-
-  const consoleContent = isConsoleOpen ? (
-    <div 
-        className="fixed bottom-0 left-0 right-0 z-[100] bg-black/95 border-t border-cyan-500/30 font-mono text-xs shadow-[0_-10px_40px_rgba(0,0,0,0.8)] animate-fade-in-up flex flex-col transition-all duration-300" 
-        style={{ height: getConsoleHeight() }}
-    >
-        {/* Header */}
-        <div className="flex justify-between items-center px-4 py-1 bg-cyan-900/20 border-b border-cyan-500/20 select-none">
-            <span className="text-cyan-500 font-bold tracking-widest">UMBRAX_KERNEL_DEBUG_SHELL</span>
-            <div className="flex items-center gap-2">
-                {/* Size Controls */}
-                <button 
-                    onClick={() => setConsoleSize('small')} 
-                    className={`p-1 hover:bg-cyan-900/40 rounded ${consoleSize === 'small' ? 'text-white' : 'text-cyan-500/50'}`}
-                    title="Minimize Height"
-                >
-                    _
-                </button>
-                <button 
-                    onClick={() => setConsoleSize('medium')} 
-                    className={`p-1 hover:bg-cyan-900/40 rounded ${consoleSize === 'medium' ? 'text-white' : 'text-cyan-500/50'}`}
-                    title="Medium Height"
-                >
-                    ▢
-                </button>
-                <button 
-                    onClick={() => setConsoleSize('full')} 
-                    className={`p-1 hover:bg-cyan-900/40 rounded ${consoleSize === 'full' ? 'text-white' : 'text-cyan-500/50'}`}
-                    title="Full Screen"
-                >
-                    ⤡
-                </button>
-                <span className="text-cyan-500/20">|</span>
-                <button onClick={toggleConsole} className="text-cyan-500/50 hover:text-cyan-400">[CLOSE]</button>
-            </div>
-        </div>
-        
-        {/* Logs Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin scrollbar-thumb-cyan-900 scrollbar-track-black">
-            {consoleLogs.map((log) => (
-                <div key={log.id} className={`font-mono break-words ${log.type === 'error' ? 'text-red-500' : log.type === 'warn' ? 'text-amber-500' : log.type === 'success' ? 'text-green-400' : log.type === 'system' ? 'text-cyan-600 font-bold' : 'text-slate-300'}`}>
-                    <span className="opacity-30 mr-2 select-none">[{log.timestamp}]</span>
-                    <span className="whitespace-pre-wrap">{log.message}</span>
-                </div>
-            ))}
-            <div ref={consoleEndRef}></div>
-        </div>
-
-        {/* Input Area */}
-        <div className="p-2 bg-black border-t border-white/10 flex items-center pb-2">
-            <span className="text-cyan-500 mr-2">{">"}</span>
-            <input 
-                ref={consoleInputRef}
-                type="text" 
-                value={consoleInput}
-                onChange={(e) => setConsoleInput(e.target.value)}
-                onKeyDown={handleConsoleCommand}
-                className="flex-1 bg-transparent border-none outline-none text-cyan-300 placeholder-cyan-900/50"
-                placeholder="Enter system command..."
-                autoComplete="off"
-            />
-        </div>
-    </div>
-  ) : null;
 
   return (
-    <>
-    <div className="w-full max-w-7xl mx-auto flex flex-col items-center pt-20 pb-24 px-4 md:px-6 lg:px-8 animate-fade-in-up">
+    <div className="min-h-screen bg-transparent text-white font-sans selection:bg-cyan-500/30 selection:text-cyan-100 overflow-x-hidden pb-20">
       
-      {/* Header / Branding */}
-      <div className="w-full mb-10 text-center relative z-10 flex flex-col items-center">
-        <div className="flex justify-center items-center w-full relative">
-            {/* Desktop Gallery Button */}
-            <div className="absolute left-0 hidden md:block">
-                <MagneticButton 
-                    onClick={() => setShowGallery(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/40 border border-white/5 text-slate-300 hover:bg-slate-700 hover:text-white group hover:border-cyan-500/30"
-                >
-                    <svg className="w-5 h-5 group-hover:text-cyan-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                    GALLERY
-                </MagneticButton>
-            </div>
-            <div>
-                <div className="inline-block px-4 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-mono tracking-widest mb-6 animate-fade-in shadow-[0_0_15px_rgba(245,158,11,0.1)]">
-                <span className="mr-2">⚡</span> POWERED BY NSD-CORE/17B
-                </div>
-                <h2 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-2 tracking-tight">
-                  <span className="bg-clip-text text-transparent bg-gradient-to-b from-white via-white to-slate-400">UMBRAX</span>
-                  <span className="text-cyan-500 ml-3 md:ml-4 drop-shadow-[0_0_15px_rgba(6,182,212,0.3)]">FLUX 3</span>
-                </h2>
-                <p className="text-slate-400 tracking-[0.5em] text-xs font-mono uppercase opacity-80">
-                   DREAMS ENGINEERED.
-                </p>
-            </div>
-            <div className="absolute right-0 hidden md:block w-[100px]"></div>
+      {/* --- HEADER --- */}
+      <header className="pt-8 pb-6 px-6 md:px-12 flex flex-col md:flex-row justify-between items-center animate-slide-down relative gap-4 md:gap-0">
+        {/* Header Left: Logo/Title */}
+        <div className="text-center md:text-left">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tighter">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">UMBRAX</span> 
+            <span className="text-cyan-500 ml-2 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">FLUX 3</span>
+          </h2>
+          <p className="text-xs text-slate-500 tracking-[0.5em] mt-1 uppercase font-mono">
+            Dreams Engineered.
+          </p>
         </div>
-        {/* Mobile Gallery Button */}
-        <button onClick={() => setShowGallery(true)} className="md:hidden mt-6 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800/40 border border-white/10 text-slate-300 hover:bg-slate-800 transition-all">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            View Gallery
-        </button>
+        
+        {/* Header Right: Buttons */}
+        <div className="flex gap-4">
+            <MagneticButton 
+              onClick={() => setShowGallery(true)}
+              className="flex items-center gap-2 px-5 py-2 bg-slate-900/50 border border-slate-700 rounded-lg hover:border-cyan-500 hover:text-cyan-400 transition-all backdrop-blur-md uppercase text-xs tracking-widest font-bold"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              Gallery
+            </MagneticButton>
+            
+            <button 
+                onClick={() => setIsVoidMode(!isVoidMode)}
+                className="text-slate-600 hover:text-white transition-colors flex flex-col items-center gap-1"
+                title="Toggle Void Mode"
+            >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                <span className="text-[8px] uppercase tracking-wider">Void Mode</span>
+            </button>
+        </div>
+      </header>
+      
+      {/* POWERED BY PILL - Responsive Positioning */}
+      {/* Desktop: Absolute Center | Mobile: Static Block with Margin */}
+      <div className="mt-6 md:mt-0 md:absolute md:top-12 md:left-1/2 md:-translate-x-1/2 z-50 flex justify-center w-full pointer-events-none">
+          <div className="bg-slate-900/80 border border-yellow-500/30 px-4 py-1 rounded-full backdrop-blur-md shadow-[0_0_15px_rgba(234,179,8,0.1)] pointer-events-auto">
+              <span className="text-[10px] text-yellow-500 font-mono font-bold tracking-widest">⚡ POWERED BY NSD-CORE/17B</span>
+          </div>
       </div>
 
-      {/* Input Panel - Increased Z-Index to 50 to overlap Output Area properly */}
-      <TiltPanel className="w-full glass-panel rounded-3xl p-5 md:p-8 mb-8 shadow-2xl shadow-blue-900/10 relative z-50 border border-white/10 hover:border-white/20">
+      {/* --- MAIN CONTENT --- */}
+      <main className={`max-w-7xl mx-auto px-4 md:px-8 pb-24 transition-opacity duration-500 ${isVoidMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         
-        {/* Preset Toolbar */}
-        <div className="flex justify-end items-center mb-4 gap-2">
-          <div className="relative">
-            <button 
-              onClick={() => setPresetDropdownOpen(!presetDropdownOpen)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-xs font-mono text-slate-300 hover:bg-slate-700 hover:text-white transition-all"
-            >
-              PRESETS <span className="text-[10px] transition-transform duration-300" style={{transform: presetDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'}}>▼</span>
-            </button>
+        {/* --- INPUT PANEL --- */}
+        <div className="animate-slide-left relative z-30">
+        <div className="animate-slide-left">
+        <TiltPanel className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-2xl p-1" intensity={0.5}>
+          <div className="p-6 md:p-8 space-y-8 relative">
             
-            {presetDropdownOpen && (
-              <div className="absolute right-0 top-full mt-2 w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-fade-in">
-                {presets.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-500 text-center">No saved presets</div>
-                ) : (
-                  <div className="max-h-60 overflow-y-auto">
-                    {presets.map(preset => (
-                      <div key={preset.id} onClick={() => loadPreset(preset)} className="flex items-center justify-between px-4 py-3 hover:bg-slate-800 cursor-pointer group border-b border-slate-800/50 last:border-none transition-colors">
-                        <span className="text-sm text-slate-300 group-hover:text-white">{preset.name}</span>
-                        <button onClick={(e) => deletePreset(e, preset.id)} className="text-slate-600 hover:text-red-400 p-1 transition-colors">×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <button onClick={() => setShowPresetSave(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-xs font-mono text-slate-300 hover:bg-slate-700 hover:text-white transition-all">
-            SAVE
-          </button>
-        </div>
-        
-        {/* Uploaded Image Preview */}
-        {uploadedImage && (
-            <div className="mb-4 relative inline-block group animate-fade-in">
-                <img src={uploadedImage} alt="Upload Preview" className="h-20 w-auto rounded-lg border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]" />
-                <button 
-                    onClick={clearUploadedImage}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-lg transform hover:scale-110 transition-all"
-                >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-center text-[9px] text-cyan-400 py-0.5 rounded-b-lg backdrop-blur-sm">
-                    REFERENCE ACTIVE
-                </div>
-            </div>
-        )}
-
-        {/* Main Prompt Input */}
-        <div className="relative mb-8 group">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            {/* Sci-Fi Command Prompt Icon */}
-            <span className="text-cyan-500 font-mono font-bold text-lg group-hover:animate-pulse">{">_"}</span>
-          </div>
-          
-          {/* Upload Button inside input */}
-          <div className="absolute inset-y-0 right-14 flex items-center">
-              <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  accept="image/*"
-                  className="hidden"
-              />
-              <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-2 text-slate-500 hover:text-white transition-colors hover:bg-slate-800 rounded-lg"
-                  title="Upload Reference Image"
-              >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-              </button>
-          </div>
-
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="ENTER YOUR SYNTHESIS DIRECTIVE"
-            className="w-full bg-slate-900/50 border border-slate-700 text-white text-lg rounded-xl pl-12 pr-24 py-4 focus:outline-none focus:border-cyan-500 focus:shadow-[0_0_25px_rgba(6,182,212,0.2)] hover:border-slate-500 placeholder-slate-600 transition-all duration-300 shadow-inner font-mono"
-            onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
-          />
-          {/* Magic Wand */}
-          <button 
-              onClick={handlePromptSuggest}
-              disabled={!prompt.trim() || isLoading}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-cyan-400 disabled:opacity-30 transition-colors hover:scale-110 active:scale-95"
-              title="Enhance Prompt with AI"
-          >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-          </button>
-
-          {/* Suggestions Modal/Dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-3 bg-slate-900/95 backdrop-blur-xl border border-cyan-500/30 rounded-xl z-50 p-4 shadow-2xl animate-fade-in">
-                  <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
-                      <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">AI Suggestions</span>
-                      <button onClick={() => setShowSuggestions(false)} className="text-slate-500 hover:text-white transition-colors">×</button>
-                  </div>
-                  <div className="space-y-2">
-                      {suggestions.map((sug, idx) => (
-                          <div 
-                              key={idx} 
-                              onClick={() => { setPrompt(sug); setShowSuggestions(false); }}
-                              className="p-3 bg-slate-800/30 hover:bg-slate-800 rounded-lg cursor-pointer text-sm text-slate-300 hover:text-white border border-transparent hover:border-cyan-500/20 transition-all"
+            {/* Prompt Input */}
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-blue-600/20 rounded-xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
+              
+              {/* Uploaded Image Preview */}
+              {uploadedImage && (
+                  <div className="absolute -top-20 left-0 z-40">
+                      <div className="relative group/preview">
+                          <img src={`data:image/png;base64,${uploadedImage}`} alt="Upload" className="h-16 w-16 object-cover rounded-lg border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]" />
+                          <button 
+                            onClick={() => setUploadedImage(null)}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover/preview:opacity-100 transition-opacity"
                           >
-                              {sug}
-                          </div>
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                      </div>
+                  </div>
+              )}
+
+              <div className="relative flex items-center">
+                  <div className="absolute left-4 text-cyan-500 animate-pulse font-mono text-lg">
+                      {`>_`}
+                  </div>
+                  <input
+                    type="text"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="ENTER YOUR SYNTHESIS DIRECTIVE"
+                    className="w-full bg-[#050b14] border border-slate-800 rounded-xl py-5 pl-12 pr-32 text-lg md:text-xl font-light tracking-wide text-white placeholder-slate-600 outline-none focus:border-cyan-500/50 focus:shadow-[0_0_30px_rgba(6,182,212,0.15)] transition-all duration-300 font-mono"
+                    style={{
+                        boxShadow: inputIntensity > 0 ? `0 0 ${inputIntensity * 20}px rgba(6, 182, 212, ${inputIntensity * 0.3})` : 'none',
+                        borderColor: inputIntensity > 0.5 ? `rgba(6, 182, 212, ${inputIntensity})` : ''
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+                  />
+                  
+                  {/* Input Actions */}
+                  <div className="absolute right-2 flex items-center gap-2">
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2 text-slate-500 hover:text-cyan-400 transition-colors rounded-lg hover:bg-white/5"
+                        title="Upload Reference Image"
+                      >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                      </button>
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                    const base64 = (reader.result as string).split(',')[1];
+                                    setUploadedImage(base64);
+                                    logToConsole(`IMAGE UPLOADED: ${file.name}`, 'info');
+                                };
+                                reader.readAsDataURL(file);
+                            }
+                        }}
+                      />
+                      
+                      <button 
+                        onClick={async () => {
+                           if(!prompt) return;
+                           logToConsole("REQUESTING AI SUGGESTIONS...", 'info');
+                           const sugs = await getPromptEnhancements(prompt);
+                           setSuggestions(sugs);
+                           setShowSuggestions(true);
+                           logToConsole(`RECEIVED ${sugs.length} SUGGESTIONS`, 'success');
+                        }}
+                        className="p-2 text-slate-500 hover:text-yellow-400 transition-colors rounded-lg hover:bg-white/5"
+                        title="AI Prompt Enhancer"
+                      >
+                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      </button>
+                  </div>
+              </div>
+              
+              {/* AI Suggestions Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-cyan-500/30 rounded-xl overflow-hidden z-50 shadow-2xl animate-fade-in">
+                      <div className="px-4 py-2 bg-cyan-950/30 border-b border-cyan-500/20 flex justify-between items-center">
+                          <span className="text-xs text-cyan-400 font-bold uppercase tracking-widest">AI Suggestions</span>
+                          <button onClick={() => setShowSuggestions(false)} className="text-slate-400 hover:text-white">&times;</button>
+                      </div>
+                      {suggestions.map((s, i) => (
+                          <button 
+                            key={i}
+                            onClick={() => { setPrompt(s); setShowSuggestions(false); }}
+                            className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-300 transition-colors border-b border-white/5 last:border-0"
+                          >
+                              {s}
+                          </button>
                       ))}
                   </div>
-              </div>
-          )}
-        </div>
-
-        {/* Controls Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div className="relative group lg:col-span-1">
-             <label className="block text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 ml-1 font-mono">Model</label>
-             <select 
-              className="w-full bg-slate-800/50 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-cyan-400 transition-all cursor-pointer"
-              value={options.model}
-              onChange={(e) => setOptions({...options, model: e.target.value as AIModel})}
-            >
-              <option value={AIModel.FLASH}>UMBRAX-IRIS_5.1</option>
-              <option value={AIModel.EXP_FLASH}>UMBRAX-BETA_2.0 (EXP)</option>
-              <option value={AIModel.IMAGEN}>UMBRX-GEN_2.5</option>
-              <option value={AIModel.PRO_IMAGE}>UMBRAX-PRIME_3.0 (PRE)</option>
-            </select>
-          </div>
-
-          <div className="relative group lg:col-span-1">
-             <label className="block text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 ml-1 font-mono">Aesthetic</label>
-             <select 
-              className="w-full bg-slate-800/50 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-cyan-400 transition-all cursor-pointer"
-              value={options.aesthetic}
-              onChange={(e) => setOptions({...options, aesthetic: e.target.value as Aesthetic})}
-            >
-              {Object.values(Aesthetic).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-            </select>
-          </div>
-
-          <div className="relative group lg:col-span-1">
-              <label className="block text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 ml-1 font-mono">Ratio</label>
-              {options.aspectRatio === AspectRatio.CUSTOM ? (
-                  <div className="flex gap-1">
-                       <input 
-                          type="text" 
-                          value={customRatioInput}
-                          onChange={(e) => setCustomRatioInput(e.target.value)}
-                          className="w-full bg-slate-800/50 border border-cyan-500/50 text-cyan-400 rounded-lg px-2 py-2.5 text-sm text-center outline-none focus:ring-1 focus:ring-cyan-400"
-                          placeholder="W:H"
-                       />
-                       <button onClick={() => setOptions({...options, aspectRatio: AspectRatio.SQUARE})} className="text-slate-500 hover:text-white px-2 hover:bg-slate-800 rounded transition-colors">×</button>
-                  </div>
-              ) : (
-                  <select 
-                      className="w-full bg-slate-800/50 border border-slate-700 hover:border-slate-500 rounded-lg px-2 py-2.5 text-sm text-white outline-none text-center focus:ring-1 focus:ring-cyan-400 transition-all cursor-pointer"
-                      value={options.aspectRatio}
-                      onChange={(e) => setOptions({...options, aspectRatio: e.target.value as AspectRatio})}
-                  >
-                      {Object.entries(AspectRatio).map(([key, val]) => <option key={key} value={val}>{val}</option>)}
-                  </select>
               )}
-          </div>
-
-          <div className="relative group lg:col-span-1">
-              <label className="block text-[10px] text-slate-600 uppercase tracking-wider mb-1.5 ml-1 font-mono">Size</label>
-              <select 
-                  className={`w-full border rounded-lg px-2 py-2.5 text-sm text-center outline-none transition-all bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed`}
-                  value={options.resolution}
-                  disabled={true}
-                  onChange={(e) => setOptions({...options, resolution: e.target.value as ImageResolution})}
-              >
-                  {Object.values(ImageResolution).map(val => <option key={val} value={val}>{val}</option>)}
-              </select>
-          </div>
-
-          <div className="lg:col-span-1 flex items-end">
-            <MagneticButton 
-              onClick={handleGenerate}
-              disabled={isLoading || !prompt.trim()}
-              className={`w-full h-[42px] rounded-lg font-semibold tracking-wide transition-all duration-300 shadow-lg transform active:scale-95 ${isLoading ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(37,99,235,0.4)] text-white border border-blue-400/20'}`}
-            >
-              {isLoading ? 'PROCESSING...' : 'INITIATE'}
-            </MagneticButton>
-          </div>
-        </div>
-      </TiltPanel>
-
-      {/* Error Message (THEMATIC) */}
-      {error && (
-        <div className="w-full mb-8 p-4 bg-red-900/20 border border-red-500/50 text-red-300 rounded-xl flex items-center gap-4 animate-fade-in backdrop-blur-sm shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-          <div className="p-2 bg-red-500/20 rounded-full animate-pulse">
-              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-          </div>
-          <div className="flex-1">
-             <p className="font-mono font-bold text-sm tracking-wider uppercase">{error}</p>
-             <p className="text-xs text-red-400/60 font-mono mt-1">CHECK SYSTEM CONSOLE FOR DIAGNOSTICS.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Output Area - Kept Z-Index lower (10) */}
-      <div className="w-full relative min-h-[400px] flex justify-center items-center mb-20 z-10" ref={scrollRef}>
-        
-        {isLoading && (
-           <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm rounded-3xl transition-all duration-500">
-               <Loader />
-               {processingMessage && <div className="absolute top-[65%] text-cyan-400 font-mono text-xs animate-pulse tracking-wider">{processingMessage}</div>}
-           </div>
-        )}
-
-        {generatedImage && (
-          <TiltPanel className={`relative w-full transition-all duration-700 ease-out ${isLoading ? 'opacity-40 grayscale pointer-events-none' : 'opacity-100'}`}>
-             
-             <div className="glass-panel p-1.5 md:p-2 rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col items-center bg-slate-900/40">
-               
-               {/* Toolbar */}
-               <div className="w-full flex flex-wrap justify-between items-center px-3 md:px-4 py-2 border-b border-white/5 bg-slate-900/60 mb-2 rounded-t-2xl">
-                  <div className="flex items-center gap-2">
-                      <button onClick={() => setZoom(Math.max(0.5, zoom - 0.2))} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
-                      </button>
-                      <span className="text-xs font-mono text-slate-400 w-10 text-center">{Math.round(zoom * 100)}%</span>
-                      <button onClick={() => setZoom(Math.min(5, zoom + 0.2))} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                      </button>
-                      <button onClick={() => { setZoom(1); setPan({x:0, y:0}); }} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 hover:text-white ml-1 border border-slate-700 hover:border-slate-500 transition-all">RESET</button>
-                  </div>
-                  
-                  <div className="flex gap-2 mt-2 md:mt-0">
-                      <button 
-                          onClick={() => setIsCompareMode(!isCompareMode)}
-                          disabled={!previousImage}
-                          className={`text-[10px] md:text-xs px-3 py-1 rounded border transition-all ${isCompareMode ? 'bg-amber-900/40 border-amber-500 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`}
-                      >
-                          COMPARE
-                      </button>
-                      <button 
-                          onClick={() => setShowFilters(!showFilters)}
-                          className={`text-[10px] md:text-xs flex items-center gap-1 px-3 py-1 rounded transition-all ${showFilters ? 'bg-blue-600 text-white border border-blue-400' : 'text-slate-400 hover:text-white bg-slate-800 border border-slate-700'}`}
-                      >
-                          FILTERS
-                      </button>
-                  </div>
-               </div>
-
-               {/* Filters Panel - Animated Height */}
-               <div className={`w-full overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-96 opacity-100 mb-2' : 'max-h-0 opacity-0'}`}>
-                   <div className="bg-slate-900/80 p-4 rounded-xl border border-white/5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                       <div>
-                           {renderAdjustmentSlider("Brightness", "brightness", 0, 200, "%")}
-                           {renderAdjustmentSlider("Contrast", "contrast", 0, 200, "%")}
-                       </div>
-                       <div>
-                           {renderAdjustmentSlider("Saturation", "saturation", 0, 200, "%")}
-                           {renderAdjustmentSlider("Blur", "blur", 0, 20, "px")}
-                       </div>
-                       <div className="flex flex-col justify-between gap-2">
-                           <div>
-                              {renderAdjustmentSlider("Sepia", "sepia", 0, 100, "%")}
-                              {renderAdjustmentSlider("Grayscale", "grayscale", 0, 100, "%")}
-                           </div>
-                           <div className="flex justify-end gap-2 mt-1">
-                              <button onClick={handleApplyOutline} className="px-2 py-1 text-[10px] bg-slate-800 border border-slate-600 text-slate-300 rounded hover:bg-slate-700 transition-colors">FX: OUTLINE</button>
-                              <button onClick={handleApplyFilters} className="px-3 py-1 text-xs bg-cyan-600 text-white rounded hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-900/20">APPLY</button>
-                           </div>
-                       </div>
-                   </div>
-               </div>
-
-               {/* IMAGE AREA */}
-               <div 
-                  className={`relative bg-slate-950 overflow-hidden rounded-xl bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] ${getAspectRatioClass(options.aspectRatio)} w-full cursor-move select-none shadow-inner border border-white/5`} 
-                  ref={imageWrapperRef} 
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-               >
-                  <div 
-                      className={`w-full h-full relative transition-transform duration-75 ease-out origin-center ${animateImage ? 'animate-hologram' : ''}`}
-                      style={{ 
-                          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                          filter: (!isCompareMode && showFilters) ? `brightness(${adjustments.brightness}%) contrast(${adjustments.contrast}%) saturate(${adjustments.saturation}%) blur(${adjustments.blur}px) sepia(${adjustments.sepia}%) grayscale(${adjustments.grayscale}%)` : 'none'
-                      }}
-                  >
-                      {isCompareMode && previousImage ? (
-                          // COMPARISON VIEW
-                          <div className="absolute inset-0">
-                              {/* Background: Previous Image */}
-                              <img 
-                                  src={`data:${previousImage.mimeType};base64,${previousImage.base64}`} 
-                                  className="absolute inset-0 w-full h-full object-contain opacity-50 grayscale"
-                                  alt="Previous"
-                              />
-                              <div className="absolute top-2 left-2 bg-black/70 px-2 py-0.5 rounded text-[10px] text-white border border-white/10 pointer-events-none">PREVIOUS</div>
-
-                              {/* Foreground: Current Image (Clipped) */}
-                              <div className="absolute inset-0 overflow-hidden border-r-2 border-amber-500 shadow-[0_0_15px_orange]" style={{ width: `${compareSliderPos}%` }}>
-                                  <img 
-                                      src={`data:${generatedImage.mimeType};base64,${generatedImage.base64}`} 
-                                      className="absolute inset-0 w-full h-full object-contain max-w-none"
-                                      style={{ width: '100%', height: '100%' }} 
-                                      alt="Current"
-                                  />
-                              </div>
-
-                              {/* Slider Handle */}
-                              <input 
-                                  type="range" min="0" max="100" 
-                                  value={compareSliderPos}
-                                  onChange={(e) => setCompareSliderPos(parseInt(e.target.value))}
-                                  className="absolute inset-0 w-full h-full opacity-0 cursor-col-resize z-20"
-                              />
-                              <div 
-                                  className="absolute top-0 bottom-0 w-1 bg-transparent z-10 pointer-events-none"
-                                  style={{ left: `${compareSliderPos}%` }}
-                              >
-                                  <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 bg-amber-500 p-1.5 rounded-full shadow-lg cursor-grab">
-                                      <svg className="w-4 h-4 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h8M8 17h8" /></svg>
-                                  </div>
-                              </div>
-                          </div>
-                      ) : (
-                          // NORMAL VIEW
-                          <>
-                              <img 
-                              src={`data:${generatedImage.mimeType};base64,${generatedImage.base64}`} 
-                              alt="Generated visualization" 
-                              className="w-full h-full object-contain pointer-events-none select-none"
-                              />
-                              
-                              {isTargetMode && (
-                                  <div className="absolute inset-0 z-20">
-                                      {selectionBox && selectionBox.w > 0 && (
-                                          <div 
-                                              className="absolute border-2 border-cyan-400 bg-cyan-400/10 shadow-[0_0_20px_rgba(34,211,238,0.3)] backdrop-brightness-110"
-                                              style={{
-                                                  left: `${selectionBox.x}%`,
-                                                  top: `${selectionBox.y}%`,
-                                                  width: `${selectionBox.w}%`,
-                                                  height: `${selectionBox.h}%`
-                                              }}
-                                          >
-                                              {/* Actions popup for selection */}
-                                              <div className="absolute -bottom-9 left-0 flex gap-1 bg-slate-900/80 p-1 rounded-lg border border-white/10 backdrop-blur-sm animate-fade-in">
-                                                   {options.aspectRatio === AspectRatio.CUSTOM && (
-                                                       <button 
-                                                          onMouseDown={(e) => { e.stopPropagation(); handleApplyCrop(); }}
-                                                          className="bg-cyan-600 text-white text-[10px] px-2 py-1 rounded hover:bg-cyan-500 transition-colors"
-                                                       >
-                                                           CROP
-                                                       </button>
-                                                   )}
-                                                   <span className="text-cyan-400 text-[10px] px-2 py-1 font-mono">
-                                                       Selection Active
-                                                   </span>
-                                              </div>
-                                          </div>
-                                      )}
-                                  </div>
-                              )}
-                          </>
-                      )}
-                  </div>
-               </div>
-
-               {/* Refinement Bar */}
-               <div className="mt-2 p-2 w-full bg-slate-900/80 rounded-xl flex flex-col md:flex-row items-center gap-3 border border-white/5 relative z-30 backdrop-blur-md">
-                  
-                  <div className="flex gap-1 w-full md:w-auto justify-center md:justify-start">
-                      <button onClick={handleUndo} disabled={historyIndex <= 0} className={`p-2 rounded-lg transition-all ${historyIndex > 0 ? 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-700' : 'bg-slate-900/50 text-slate-700 border border-transparent'}`}>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
-                      </button>
-                      <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className={`p-2 rounded-lg transition-all ${historyIndex < history.length - 1 ? 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-700' : 'bg-slate-900/50 text-slate-700 border border-transparent'}`}>
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" /></svg>
-                      </button>
-                  </div>
-
-                  <div className="flex-1 w-full relative">
-                     <input 
-                        type="text" 
-                        value={editPrompt}
-                        onChange={(e) => setEditPrompt(e.target.value)}
-                        placeholder={selectionBox ? "Change selected area..." : "Add stars, change lighting..."}
-                        className="w-full bg-slate-800 text-sm text-white rounded-lg pl-4 pr-4 py-2.5 focus:ring-1 focus:ring-cyan-400 outline-none border border-slate-700/50 hover:border-slate-600 transition-colors"
-                        onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
-                     />
-                  </div>
-                  
-                  <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 justify-center md:justify-end">
-                      <MagneticButton onClick={handleOutpaint} className="whitespace-nowrap px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm border border-white/10 transition-colors" title="Extend Borders (Outpaint)">
-                          Extend
-                      </MagneticButton>
-                      <MagneticButton
-                          onClick={() => { setIsTargetMode(!isTargetMode); if (isTargetMode) setSelectionBox(null); }}
-                          className={`whitespace-nowrap px-3 py-2 rounded-lg border text-sm transition-all ${isTargetMode ? 'bg-cyan-900/80 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]' : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'}`}
-                      >
-                          {isTargetMode ? 'Target Active' : 'Select Area'}
-                      </MagneticButton>
-                      <MagneticButton onClick={initiateDownload} className="whitespace-nowrap px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-900/30 transition-colors">
-                          Download
-                      </MagneticButton>
-                  </div>
-               </div>
-             </div>
-          </TiltPanel>
-        )}
-
-        {/* Empty State / Intro Visuals could go here if needed */}
-        {!generatedImage && !isLoading && !error && (
-            <div className="flex flex-col items-center justify-center mt-10 opacity-30 pointer-events-none select-none">
-                <div className="w-32 h-32 border border-slate-700 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                    <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
-                </div>
-                <p className="text-sm font-mono tracking-[0.5em] text-slate-500 uppercase">Waiting for Input</p>
             </div>
-        )}
 
-      </div>
-    </div>
-
-    {/* --- OVERLAYS --- */}
-
-    {/* Gallery Modal */}
-    {showGallery && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center animate-fade-in p-4 md:p-8">
-            <div className="w-full max-w-6xl h-[80vh] bg-slate-900 rounded-2xl border border-white/10 flex flex-col overflow-hidden shadow-2xl">
-                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-slate-800/30">
-                    <h3 className="text-xl font-bold text-white tracking-wide">ARCHIVE GALLERY <span className="text-slate-500 text-sm ml-2">({gallery.length} ITEMS)</span></h3>
-                    <button onClick={() => setShowGallery(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors">
-                        <svg className="w-6 h-6 text-slate-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
+            {/* Controls Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {/* Model Selector */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Model</label>
+                <div className="relative group">
+                  <select
+                    value={options.model}
+                    onChange={(e) => setOptions({ ...options, model: e.target.value as AIModel })}
+                    className="w-full appearance-none bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-xs font-mono text-cyan-100 outline-none focus:border-cyan-500 transition-all cursor-pointer hover:bg-slate-800"
+                  >
+                    <option value={AIModel.FLASH}>UMBRAX-IRIS_5.1</option>
+                    <option value={AIModel.IMAGEN}>UMBRX-GEN_2.5</option>
+                    <option value={AIModel.EXP_FLASH}>UMBRAX-BETA_2.0 (EXP)</option>
+                    <option value={AIModel.PRO_IMAGE}>UMBRAX-PRIME_3.0 (PRE)</option>
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-6">
-                    {gallery.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50">
-                             <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                             <p className="font-mono uppercase tracking-widest">No Archives Found</p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                            {gallery.map(img => (
-                                <div key={img.id} onClick={() => loadFromGallery(img)} className="group relative aspect-square rounded-xl overflow-hidden border border-white/5 hover:border-cyan-500/50 cursor-pointer transition-all">
-                                    <img src={`data:${img.mimeType};base64,${img.base64}`} alt="Gallery item" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3">
-                                        <p className="text-xs text-white line-clamp-1 font-mono mb-1">{img.prompt}</p>
-                                        <p className="text-[10px] text-slate-400">{new Date(img.timestamp).toLocaleTimeString()}</p>
-                                        <button 
-                                            onClick={(e) => deleteFromGallery(e, img.id)}
-                                            className="absolute top-2 right-2 p-1.5 bg-red-500/20 text-red-400 rounded hover:bg-red-500 hover:text-white transition-colors"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        </button>
-                                    </div>
+              </div>
+
+              {/* Aesthetic Selector */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Aesthetic</label>
+                <div className="relative group">
+                  <select
+                    value={options.aesthetic}
+                    onChange={(e) => setOptions({ ...options, aesthetic: e.target.value as Aesthetic })}
+                    className="w-full appearance-none bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-xs font-mono text-cyan-100 outline-none focus:border-cyan-500 transition-all cursor-pointer hover:bg-slate-800"
+                  >
+                    {Object.values(Aesthetic).map((style) => (
+                      <option key={style} value={style}>{style}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ratio Selector */}
+              <div className="space-y-2 relative">
+                <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Ratio</label>
+                <div className="relative group">
+                  <select
+                    value={options.aspectRatio}
+                    onChange={(e) => setOptions({ ...options, aspectRatio: e.target.value as AspectRatio })}
+                    className="w-full appearance-none bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-xs font-mono text-cyan-100 outline-none focus:border-cyan-500 transition-all cursor-pointer hover:bg-slate-800"
+                  >
+                    {Object.values(AspectRatio).map((ratio) => (
+                      <option key={ratio} value={ratio}>{ratio}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+                </div>
+                {/* Custom Ratio Input Overlay if Custom selected */}
+                {options.aspectRatio === AspectRatio.CUSTOM && (
+                    <div className="absolute top-full left-0 mt-2 w-full z-20 animate-fade-in">
+                        <input 
+                            type="text"
+                            value={customRatioInput}
+                            onChange={(e) => {
+                                setCustomRatioInput(e.target.value);
+                                const parts = e.target.value.split(':');
+                                if (parts.length === 2) {
+                                    const w = parseFloat(parts[0]);
+                                    const h = parseFloat(parts[1]);
+                                    if (!isNaN(w) && !isNaN(h) && h !== 0) {
+                                        setOptions(prev => ({ ...prev, customRatioValue: w/h }));
+                                    }
+                                }
+                            }}
+                            className="w-full bg-slate-900 border border-cyan-500 text-white text-xs p-2 rounded"
+                            placeholder="e.g. 21:9"
+                        />
+                    </div>
+                )}
+              </div>
+
+              {/* Presets / Save / Initiate */}
+              <div className="flex gap-2 items-end">
+                {/* Initiate Button */}
+                <MagneticButton
+                  onClick={handleGenerate}
+                  disabled={isLoading || (!prompt && !uploadedImage)}
+                  className={`flex-1 h-[42px] rounded-lg font-bold tracking-wider uppercase text-xs transition-all duration-300 flex items-center justify-center relative overflow-hidden ${
+                    isLoading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)] hover:shadow-[0_0_30px_rgba(37,99,235,0.6)]'
+                  }`}
+                >
+                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
+                   <span className="relative z-10">{isLoading ? 'Synthesizing...' : 'Initiate'}</span>
+                </MagneticButton>
+                
+                {/* Preset Menu */}
+                 <div className="relative">
+                    <button 
+                        onClick={() => setPresetDropdownOpen(!presetDropdownOpen)}
+                        className="h-[42px] px-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white hover:border-slate-500 transition-all"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                    </button>
+                    
+                    {presetDropdownOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 p-2 animate-fade-in">
+                            <button 
+                                onClick={() => { setShowPresetSave(true); setPresetDropdownOpen(false); }}
+                                className="w-full text-left px-3 py-2 text-xs text-cyan-400 hover:bg-slate-800 rounded mb-2 flex items-center gap-2"
+                            >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                Save Current Settings
+                            </button>
+                            <div className="h-px bg-slate-800 my-1"></div>
+                            {presets.length === 0 && <p className="text-[10px] text-slate-600 px-3 py-2">No presets saved</p>}
+                            {presets.map(p => (
+                                <div key={p.id} className="flex items-center justify-between group/preset hover:bg-slate-800 rounded px-2">
+                                    <button 
+                                        onClick={() => loadPreset(p)}
+                                        className="flex-1 text-left py-2 text-xs text-slate-300"
+                                    >
+                                        {p.name}
+                                    </button>
+                                    <button 
+                                        onClick={(e) => deletePreset(p.id, e)}
+                                        className="text-red-500 opacity-0 group-hover/preset:opacity-100 hover:text-red-400"
+                                    >
+                                        &times;
+                                    </button>
                                 </div>
                             ))}
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
-    )}
+              </div>
 
-    {/* Download Confirmation Modal */}
-    {showDownloadConfirm && (
-        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in p-4">
-            <div className="bg-slate-900 border border-white/10 p-6 rounded-2xl max-w-sm w-full shadow-2xl text-center">
-                <div className="w-12 h-12 mx-auto bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">Confirm Download</h3>
-                <p className="text-slate-400 text-sm mb-6">Save this synthesis to your local device?</p>
-                <div className="flex gap-3">
-                    <MagneticButton onClick={() => setShowDownloadConfirm(false)} className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition-colors">Cancel</MagneticButton>
-                    <MagneticButton onClick={performDownload} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-blue-900/20 transition-colors">Save File</MagneticButton>
-                </div>
             </div>
+          </div>
+        </TiltPanel>
         </div>
-    )}
+        </div>
+        
+        {/* CHRONOSPHERE (HISTORY STRIP) */}
+        {history.length > 0 && (
+            <div className="mt-4 flex gap-2 overflow-x-auto py-2 px-1 custom-scrollbar animate-fade-in">
+                {history.map((img, idx) => (
+                    <button 
+                        key={img.id}
+                        onClick={() => jumpToHistory(idx)}
+                        className={`relative flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border transition-all ${historyIndex === idx ? 'border-cyan-500 ring-2 ring-cyan-500/30' : 'border-slate-700 hover:border-slate-500 opacity-60 hover:opacity-100'}`}
+                    >
+                        <img src={`data:${img.mimeType};base64,${img.base64}`} alt="" className="w-full h-full object-cover" />
+                    </button>
+                ))}
+            </div>
+        )}
 
-    {/* Preset Name Modal */}
-    {showPresetSave && (
-        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in p-4">
-            <div className="bg-slate-900 border border-white/10 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
-                <h3 className="text-lg font-bold text-white mb-4">Save Configuration</h3>
-                <input 
+        {/* --- OUTPUT PANEL --- */}
+        <div ref={scrollRef} className="mt-6 animate-slide-up relative z-20">
+        <TiltPanel className={`glass-panel rounded-2xl border-white/10 overflow-hidden min-h-[500px] flex flex-col items-center justify-center relative transition-all duration-500 ${generatedImage ? 'bg-slate-950' : 'bg-slate-900/30'}`} intensity={0.5}>
+            
+            {isLoading && <Loader />}
+
+            {/* Empty State */}
+            {!generatedImage && !isLoading && !error && (
+              <div className="text-center space-y-4 opacity-30">
+                 <div className="w-24 h-24 border-2 border-dashed border-slate-500 rounded-full mx-auto flex items-center justify-center animate-[spin_20s_linear_infinite]">
+                    <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
+                 </div>
+                 <p className="text-sm font-mono tracking-widest uppercase">System Idle</p>
+              </div>
+            )}
+            
+            {/* Error State */}
+            {error && !isLoading && (
+                <div className="text-center max-w-lg px-6">
+                   <div className="text-red-500 text-4xl mb-4">⚠</div>
+                   <h3 className="text-red-400 font-bold tracking-widest uppercase mb-2">System Error</h3>
+                   <p className="text-red-300/70 font-mono text-sm">{error}</p>
+                </div>
+            )}
+
+            {/* Image Display */}
+            {generatedImage && !isLoading && !error && (
+                <div ref={imageWrapperRef} className="relative w-full h-full flex flex-col">
+                   {/* Main Canvas Wrapper - Updated for Pointer Events */}
+                   <div 
+                       className="relative w-full flex-1 overflow-hidden flex items-center justify-center bg-slate-950 p-4 touch-none"
+                       onPointerDown={handlePointerDown}
+                       onPointerMove={handlePointerMove}
+                       onPointerUp={handlePointerUp}
+                       onPointerLeave={handlePointerUp}
+                       style={{ cursor: isTargetMode ? 'crosshair' : isPanning ? 'grabbing' : 'grab' }}
+                   >
+                       <div 
+                           className={`relative shadow-2xl transition-transform duration-75 ease-out w-fit mx-auto ${animateImage ? 'animate-scan' : ''}`}
+                           style={{ 
+                               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                               transformOrigin: 'center center'
+                           }}
+                       >
+                           <img 
+                               ref={imageRef}
+                               src={`data:${generatedImage.mimeType};base64,${generatedImage.base64}`} 
+                               alt="Generated" 
+                               className="max-w-full max-h-[70vh] object-contain select-none pointer-events-none border border-white/10"
+                           />
+                           
+                           {/* Selection Box Overlay */}
+                           {isTargetMode && selectionBox && (
+                               <div 
+                                 className="absolute border-2 border-cyan-500 bg-cyan-500/20 shadow-[0_0_15px_cyan] z-10 pointer-events-none"
+                                 style={{
+                                     left: `${selectionBox.x}%`,
+                                     top: `${selectionBox.y}%`,
+                                     width: `${selectionBox.w}%`,
+                                     height: `${selectionBox.h}%`
+                                 }}
+                               >
+                                   <div className="absolute -top-6 left-0 bg-cyan-500 text-black text-[10px] font-bold px-1">TARGET</div>
+                               </div>
+                           )}
+                       </div>
+                   </div>
+
+                   {/* Refinement Toolbar */}
+                   <div className="w-full bg-slate-900/80 backdrop-blur-md border-t border-white/10 p-4 flex flex-col md:flex-row items-center gap-4">
+                       {/* History Controls */}
+                       <div className="flex items-center gap-2">
+                           <button onClick={handleUndo} disabled={historyIndex <= 0} className="p-2 hover:bg-white/10 rounded disabled:opacity-30 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>
+                           <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className="p-2 hover:bg-white/10 rounded disabled:opacity-30 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" /></svg></button>
+                       </div>
+                       
+                       {/* Select Area Button (Relocated) */}
+                       <MagneticButton
+                           onClick={toggleTargetMode}
+                           className={`px-3 py-2 rounded text-xs font-bold uppercase tracking-wider border transition-all ${isTargetMode ? 'bg-cyan-500 text-slate-950 border-cyan-400' : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-cyan-500'}`}
+                       >
+                           {isTargetMode ? 'Stop Selecting' : 'Select Area'}
+                       </MagneticButton>
+
+                       {/* Edit Input */}
+                       <div className="flex-1 w-full relative">
+                           <input 
+                               type="text" 
+                               value={editPrompt}
+                               onChange={(e) => setEditPrompt(e.target.value)}
+                               onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
+                               placeholder={isTargetMode ? "Describe change for selected area..." : "Describe change for whole image..."}
+                               className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2 text-sm text-white focus:border-cyan-500 outline-none transition-colors"
+                           />
+                           <button 
+                               onClick={handleEdit}
+                               disabled={!editPrompt.trim()}
+                               className="absolute right-2 top-1/2 -translate-y-1/2 text-cyan-500 hover:text-cyan-300 disabled:opacity-30"
+                           >
+                               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                           </button>
+                       </div>
+
+                       {/* Tools */}
+                       <div className="flex gap-2">
+                           <button onClick={handleOutpaint} className="px-3 py-2 bg-slate-800 border border-slate-600 rounded text-xs hover:bg-slate-700 hover:text-white transition-colors">Extend</button>
+                           <button onClick={() => setShowFilters(!showFilters)} className={`px-3 py-2 border border-slate-600 rounded text-xs transition-colors ${showFilters ? 'bg-cyan-900 text-cyan-200 border-cyan-500' : 'bg-slate-800 hover:bg-slate-700'}`}>Filters</button>
+                           <button 
+                            onClick={() => setShowDownloadConfirm(true)}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded text-xs shadow-[0_0_10px_rgba(37,99,235,0.3)]"
+                           >
+                               Download
+                           </button>
+                       </div>
+                   </div>
+                   
+                   {/* Filter Panel */}
+                   {showFilters && (
+                       <div className="w-full bg-slate-900/90 border-t border-white/10 p-4 grid grid-cols-2 md:grid-cols-6 gap-4 animate-fade-in">
+                           {Object.entries(adjustments).map(([key, val]) => (
+                               <div key={key} className="space-y-1">
+                                   <label className="text-[10px] uppercase text-slate-500">{key}</label>
+                                   <input 
+                                       type="range" 
+                                       min={key === 'blur' ? 0 : 0} 
+                                       max={key === 'blur' ? 20 : 200} 
+                                       value={val}
+                                       onChange={(e) => setAdjustments(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                                       className="w-full accent-cyan-500 h-1 bg-slate-700 rounded cursor-pointer"
+                                   />
+                               </div>
+                           ))}
+                           <div className="flex items-end">
+                               <button 
+                                   onClick={async () => {
+                                       if(!generatedImage) return;
+                                       const filtered = await applyImageAdjustments(generatedImage.base64, adjustments);
+                                       // Re-apply watermark
+                                       const watermarked = await applyWatermark(filtered);
+                                       updateHistory({ ...generatedImage, id: Date.now().toString(), base64: watermarked, timestamp: Date.now() });
+                                   }}
+                                   className="w-full py-1 bg-cyan-600 text-white text-xs rounded"
+                               >Apply</button>
+                           </div>
+                       </div>
+                   )}
+                </div>
+            )}
+
+        </TiltPanel>
+        </div>
+
+      </main>
+      
+      {/* --- PORTALS --- */}
+      
+      {/* CONSOLE OVERLAY */}
+      {isConsoleOpen && createPortal(
+          <div 
+            className={`fixed bottom-0 left-0 right-0 z-[100] bg-[#0a0f1e]/95 backdrop-blur-xl border-t border-cyan-500/30 shadow-[0_-10px_50px_rgba(0,0,0,0.8)] transition-all duration-300 animate-fade-in-up font-mono text-xs text-green-400 flex flex-col ${
+                consoleSize === 'small' ? 'h-[200px]' : consoleSize === 'medium' ? 'h-[50vh]' : 'h-[100vh]'
+            }`}
+          >
+              {/* Header */}
+              <div className="flex justify-between items-center px-4 py-1 bg-cyan-950/50 border-b border-cyan-500/20 select-none">
+                  <span className="tracking-widest text-cyan-500 uppercase text-[10px]">UMBRAX_KERNEL_DEBUG_SHELL</span>
+                  <div className="flex items-center gap-3">
+                      <button onClick={() => setConsoleSize(consoleSize === 'small' ? 'medium' : consoleSize === 'medium' ? 'full' : 'small')} className="hover:text-white text-cyan-600" title="Resize">
+                         {consoleSize === 'full' ? '⤓' : '⤒'}
+                      </button>
+                      <button onClick={toggleConsole} className="hover:text-white text-red-500" title="Close">[CLOSE]</button>
+                  </div>
+              </div>
+              
+              {/* Output */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar bg-black/40">
+                  {consoleLogs.map((log) => (
+                      <div key={log.id} className={`flex gap-2 ${log.type === 'error' ? 'text-red-500' : log.type === 'warn' ? 'text-yellow-400' : log.type === 'system' ? 'text-cyan-400' : 'text-green-400/80'}`}>
+                          <span className="opacity-50 text-[10px] shrink-0">[{log.timestamp}]</span>
+                          <span className="break-all whitespace-pre-wrap font-mono">{log.message}</span>
+                      </div>
+                  ))}
+                  <div ref={consoleEndRef} />
+              </div>
+              
+              {/* Input */}
+              <div className="p-2 bg-black/60 border-t border-white/5 flex items-center gap-2 pb-8 md:pb-2">
+                  <span className="text-cyan-500">{`>`}</span>
+                  <input 
+                    ref={consoleInputRef}
+                    type="text" 
+                    value={consoleInput}
+                    onChange={(e) => setConsoleInput(e.target.value)}
+                    onKeyDown={handleConsoleCommand}
+                    className="flex-1 bg-transparent outline-none text-white placeholder-white/20"
+                    placeholder="enter system command..."
+                    autoFocus
+                  />
+              </div>
+          </div>,
+          document.body
+      )}
+
+      {/* DOWNLOAD CONFIRMATION MODAL */}
+      {showDownloadConfirm && createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+              <div className="w-full max-w-sm bg-slate-900 border border-white/10 rounded-xl p-6 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-cyan-500"></div>
+                  <h3 className="text-lg font-bold text-white mb-2">CONFIRM DOWNLOAD</h3>
+                  <p className="text-slate-400 text-sm mb-6">Initiate secure transfer of visual asset to local storage?</p>
+                  <div className="flex justify-end gap-3">
+                      <button onClick={() => setShowDownloadConfirm(false)} className="px-4 py-2 text-slate-400 hover:text-white text-xs uppercase">Cancel</button>
+                      <button onClick={handleDownload} className="px-6 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded text-xs uppercase shadow-[0_0_15px_rgba(6,182,212,0.4)]">Proceed</button>
+                  </div>
+              </div>
+          </div>,
+          document.body
+      )}
+      
+      {/* GALLERY MODAL */}
+      {showGallery && createPortal(
+        <div className="fixed inset-0 z-40 bg-[#020617]/95 backdrop-blur-xl flex flex-col animate-fade-in">
+           <div className="p-6 flex justify-between items-center border-b border-white/10 bg-slate-900/50">
+              <h2 className="text-2xl font-bold text-white tracking-tighter"><span className="text-cyan-500">FLUX</span> ARCHIVE</h2>
+              <button onClick={() => setShowGallery(false)} className="p-2 rounded-full hover:bg-white/10 transition-colors">
+                  <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+           </div>
+           
+           <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+               {gallery.length === 0 && (
+                   <div className="col-span-full flex flex-col items-center justify-center text-slate-500 h-64 opacity-50">
+                       <svg className="w-12 h-12 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                       <p>NO ASSETS IN ARCHIVE</p>
+                   </div>
+               )}
+               {gallery.map((img) => (
+                   <div key={img.id} className="group relative aspect-square rounded-lg overflow-hidden border border-white/5 hover:border-cyan-500/50 transition-all cursor-pointer" onClick={() => { setGeneratedImage(img); setShowGallery(false); }}>
+                       <img src={`data:${img.mimeType};base64,${img.base64}`} alt="" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                           <span className="text-cyan-400 text-xs font-bold uppercase tracking-widest border border-cyan-500 px-3 py-1 rounded">LOAD</span>
+                       </div>
+                       <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/80 text-[10px] text-slate-400 truncate">
+                           {new Date(img.timestamp).toLocaleTimeString()}
+                       </div>
+                   </div>
+               ))}
+           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* SAVE PRESET MODAL */}
+      {showPresetSave && createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+              <div className="w-full max-w-sm bg-slate-900 border border-white/10 rounded-xl p-6 shadow-2xl">
+                  <h3 className="text-white font-bold mb-4">SAVE PRESET</h3>
+                  <input 
                     type="text" 
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}
                     placeholder="Enter preset name..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-cyan-500 mb-4"
+                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white mb-4 focus:border-cyan-500 outline-none"
                     autoFocus
-                />
-                <div className="flex gap-3">
-                    <MagneticButton onClick={() => setShowPresetSave(false)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm">Cancel</MagneticButton>
-                    <MagneticButton onClick={savePreset} className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-medium">Save Preset</MagneticButton>
-                </div>
+                  />
+                  <div className="flex justify-end gap-3">
+                      <button onClick={() => setShowPresetSave(false)} className="text-slate-400 hover:text-white text-xs">CANCEL</button>
+                      <button onClick={handlePresetSave} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs">SAVE</button>
+                  </div>
+              </div>
+          </div>,
+          document.body
+      )}
+
+      {/* --- FOOTER (PORTAL TO BODY FOR FIXED POS) --- */}
+      {createPortal(
+        <div className={`fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-4 md:px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest transition-opacity duration-500 ${isVoidMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+            <div className="flex items-center gap-2 md:gap-4">
+                <span className="flex items-center gap-2">
+                   {isLoading ? (
+                       <span className="relative flex h-2 w-2">
+                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                           <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                       </span>
+                   ) : (
+                       <span className="relative flex h-2 w-2">
+                           <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                           <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                       </span>
+                   )}
+                   {isLoading ? <span className="text-amber-500">PROCESSING DATA</span> : <span>SYSTEM READY</span>}
+                </span>
+                <span className="hidden md:inline text-slate-700">|</span>
+                {/* Dynamic Model Name Display */}
+                <span className="hidden md:inline">
+                    MODEL: {
+                        options.model === AIModel.FLASH ? "UMBRAX-IRIS_5.1" :
+                        options.model === AIModel.IMAGEN ? "UMBRX-GEN_2.5" :
+                        options.model === AIModel.EXP_FLASH ? "UMBRAX-BETA_2.0" :
+                        "UMBRAX-PRIME_3.0"
+                    }
+                </span>
+                <span className="hidden md:inline text-slate-700">|</span>
+                <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
+                    F&Q // SYNTHESIS CORE
+                </a>
             </div>
-        </div>
-    )}
+            
+            <div className="flex items-center gap-4">
+                <span className="opacity-70">ID: {initialId || defaultId}</span>
+                {/* Terminal Toggle - Right Side */}
+                <button 
+                    onClick={toggleConsole} 
+                    className={`p-1 rounded hover:bg-white/10 transition-colors ${isConsoleOpen ? 'text-cyan-400' : 'text-slate-500'}`}
+                    title="System Console"
+                >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                </button>
+            </div>
+        </div>,
+        document.body
+      )}
 
-    {/* SYSTEM STATUS FOOTER (App View) - PORTALED TO BODY TO FIX SMOOTH SCROLLING */}
-    {createPortal(footerContent, document.body)}
-
-    {/* SYSTEM CONSOLE OVERLAY (Fixed Bottom Drawer) - PORTALED TO BODY */}
-    {isConsoleOpen && createPortal(consoleContent, document.body)}
-    </>
+    </div>
   );
 };
 

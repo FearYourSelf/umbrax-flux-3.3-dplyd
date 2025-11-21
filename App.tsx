@@ -82,55 +82,14 @@ const BootSequence: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   );
 };
 
-// --- TRANSITION COMPONENT 2: FLUX CORE OVERLOAD (Login -> App) ---
-const UnlockSequence: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
-  const [phase, setPhase] = useState<'ACCESS' | 'IMPLODE' | 'EXPLODE'>('ACCESS');
 
-  useEffect(() => {
-    // Phase 1: Show Access Granted (already rendered initially)
-    // Phase 2: Implode (Collapse to center)
-    const t1 = setTimeout(() => setPhase('IMPLODE'), 1000);
-    
-    // Phase 3: Explode (Shockwave)
-    const t2 = setTimeout(() => setPhase('EXPLODE'), 1400); // 400ms for implosion
-    
-    // Phase 4: Finish (Reveal App)
-    const t3 = setTimeout(onComplete, 2200); // 800ms for explosion/fade
-
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden pointer-events-none">
-       
-       {/* CONTENT TO IMPLODE */}
-       {phase !== 'EXPLODE' && (
-           <div className={`relative z-10 flex flex-col items-center justify-center transition-all ${phase === 'IMPLODE' ? 'animate-implode' : ''}`}>
-              <div className="w-32 h-32 border-4 border-green-400 rounded-full flex items-center justify-center shadow-[0_0_50px_#4ade80] bg-green-900/20 backdrop-blur-md">
-                 <svg className="w-16 h-16 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-              </div>
-              <div className="mt-6 text-green-400 font-bold tracking-[0.5em] text-2xl uppercase whitespace-nowrap drop-shadow-[0_0_10px_rgba(74,222,128,0.5)]">Access Granted</div>
-           </div>
-       )}
-
-       {/* SHOCKWAVE EXPLOSION */}
-       {phase === 'EXPLODE' && (
-           <div className="absolute inset-0 flex items-center justify-center">
-               {/* Massive Gradient Ring that scales up without pixelation */}
-               <div className="w-[100vmax] h-[100vmax] rounded-full bg-[radial-gradient(circle,rgba(6,182,212,0)_20%,rgba(6,182,212,1)_40%,rgba(224,242,254,0.8)_50%,rgba(6,182,212,1)_60%,rgba(6,182,212,0)_80%)] animate-shockwave opacity-0"></div>
-           </div>
-       )}
-    </div>
-  );
-};
-
-
-type AppState = 'INTRO' | 'BOOT' | 'LOGIN' | 'UNLOCK' | 'APP';
+type AppState = 'INTRO' | 'BOOT' | 'LOGIN' | 'APP';
 
 const App: React.FC = () => {
   const [viewState, setViewState] = useState<AppState>('INTRO');
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState(false);
+  const [isExitingLogin, setIsExitingLogin] = useState(false);
   
   // Mouse Parallax State
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -141,36 +100,103 @@ const App: React.FC = () => {
   // Generate a random session ID on mount
   const [sessionId] = useState(() => Math.floor(10000000000 + Math.random() * 90000000000).toString());
 
-  // --- REACTIVITY 1: GLOBAL RIPPLE EFFECT ---
+  // --- REACTIVITY: DISABLE CONTEXT MENU ---
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-        const ripple = document.createElement('div');
-        ripple.classList.add('ripple');
-        ripple.style.left = `${e.clientX - 10}px`; // -10 for half radius
-        ripple.style.top = `${e.clientY - 10}px`;
-        ripple.style.width = '20px';
-        ripple.style.height = '20px';
-        document.body.appendChild(ripple);
-        
-        setTimeout(() => {
-            ripple.remove();
-        }, 600);
-    };
-    
     const handleContextMenu = (e: MouseEvent) => {
         e.preventDefault(); // Disable right click
     };
-
-    window.addEventListener('click', handleClick);
     window.addEventListener('contextmenu', handleContextMenu);
-    
     return () => {
-        window.removeEventListener('click', handleClick);
         window.removeEventListener('contextmenu', handleContextMenu);
     };
   }, []);
 
-  // --- REACTIVITY 2: INERTIAL SMOOTH SCROLL ---
+  // --- REACTIVITY: CURSOR TRAIL (CANVAS) ---
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      let width = window.innerWidth;
+      let height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
+
+      // Trail particles
+      const trail: {x: number, y: number, age: number}[] = [];
+      let mouseX = width / 2;
+      let mouseY = height / 2;
+      
+      const handleResize = () => {
+          width = window.innerWidth;
+          height = window.innerHeight;
+          canvas.width = width;
+          canvas.height = height;
+      };
+      window.addEventListener('resize', handleResize);
+
+      const handleMove = (e: MouseEvent) => {
+          mouseX = e.clientX;
+          mouseY = e.clientY;
+      };
+      window.addEventListener('mousemove', handleMove);
+
+      const animate = () => {
+          ctx.clearRect(0, 0, width, height);
+          
+          // Add new point
+          trail.push({ x: mouseX, y: mouseY, age: 0 });
+
+          // Draw trail
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          
+          // Remove old points
+          while (trail.length > 0 && trail[0].age > 20) {
+              trail.shift();
+          }
+
+          if (trail.length > 1) {
+              // Draw Glow
+              ctx.shadowBlur = 10;
+              ctx.shadowColor = '#22d3ee'; // Cyan
+              ctx.beginPath();
+              ctx.moveTo(trail[0].x, trail[0].y);
+              for (let i = 1; i < trail.length; i++) {
+                   const p = trail[i];
+                   p.age++; // Age points
+                   
+                   // Quadratic Bezier for smoothness
+                   // ctx.lineTo(p.x, p.y); 
+                   // Simpler line is often faster and sufficient for this effect
+                   ctx.lineTo(p.x, p.y);
+              }
+              ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+
+              // Draw Head
+              const head = trail[trail.length - 1];
+              ctx.beginPath();
+              ctx.arc(head.x, head.y, 2, 0, Math.PI * 2);
+              ctx.fillStyle = '#fff';
+              ctx.fill();
+          }
+
+          requestAnimationFrame(animate);
+      };
+      const animId = requestAnimationFrame(animate);
+
+      return () => {
+          window.removeEventListener('resize', handleResize);
+          window.removeEventListener('mousemove', handleMove);
+          cancelAnimationFrame(animId);
+      };
+  }, []);
+
+  // --- REACTIVITY: INERTIAL SMOOTH SCROLL ---
   useEffect(() => {
     const body = document.body;
     const container = scrollContainerRef.current;
@@ -215,7 +241,7 @@ const App: React.FC = () => {
     };
   }, [viewState]); // Re-run when state changes (content height changes)
 
-  // --- REACTIVITY 3: MOUSE PARALLAX ---
+  // --- REACTIVITY: MOUSE PARALLAX ---
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
         const x = (e.clientX / window.innerWidth) * 2 - 1; // -1 to 1
@@ -239,45 +265,54 @@ const App: React.FC = () => {
     // Check for valid passwords
     if (passwordInput === 'genygen' || passwordInput === 'nsdadmin') {
       setAuthError(false);
-      setViewState('UNLOCK');
+      setIsExitingLogin(true); // Trigger exit animation
+      setTimeout(() => {
+        setViewState('APP');
+      }, 800); // Wait for dissolve animation
     } else {
       setAuthError(true);
       setPasswordInput('');
     }
   };
 
-  const handleUnlockComplete = () => {
-    setViewState('APP');
-  };
-
   return (
     <>
-    {/* Fixed background layer */}
+    {/* Cursor Trail Canvas */}
+    <canvas id="cursor-canvas"></canvas>
+
+    {/* --- ENHANCED DYNAMIC BACKGROUND --- */}
     <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden bg-[#020617]">
-         {/* Deep Space Gradient - Moves slowly opposite to mouse */}
+         
+         {/* 1. Animated Aurora Gradient Base - Reverted Opacity to 40 */}
+         <div className="absolute inset-0 bg-animated-gradient opacity-40"></div>
+
+         {/* 2. 3D Perspective Grid Floor (Moves with mouse parallax) - Increased Opacity */}
          <div 
-            className="absolute inset-[-5%] w-[110%] h-[110%] bg-[radial-gradient(circle_at_50%_50%,_rgba(6,182,212,0.08),_rgba(2,6,23,1)_70%)] transition-transform duration-100 ease-out"
-            style={{ transform: `translate(${mousePos.x * -10}px, ${mousePos.y * -10}px)` }}
+           className="absolute inset-0 transition-transform duration-100 ease-out"
+           style={{ transform: `translate(${mousePos.x * -15}px, ${mousePos.y * -15}px)` }}
+         >
+             <div className="perspective-grid-floor opacity-50"></div>
+         </div>
+
+         {/* 3. Ceiling Grid (Flatter, subtler) - Fixed width and Opacity */}
+         <div 
+            className="absolute top-0 left-[-10%] w-[120%] h-[50%] bg-cyber-grid opacity-30"
+            style={{ transform: `perspective(500px) rotateX(-10deg) translate(${mousePos.x * 10}px, ${mousePos.y * 10}px)` }}
          ></div>
          
-         {/* Moving Grid - Moves slightly with mouse */}
+         {/* 4. Floating Orbs - Brighter */}
          <div 
-            className="absolute inset-[-10%] w-[120%] h-[120%] bg-cyber-grid opacity-30 transition-transform duration-100 ease-out"
-            style={{ transform: `translate(${mousePos.x * 20}px, ${mousePos.y * 20}px) perspective(500px) rotateX(10deg)` }}
-         ></div>
-         
-         {/* Floating Orbs - Independent Movement */}
-         <div 
-            className="absolute top-[-10%] left-[-10%] w-[800px] h-[800px] bg-blue-900/10 rounded-full blur-[120px] animate-pulse transition-transform duration-700 ease-out"
+            className="absolute top-[-10%] left-[-10%] w-[800px] h-[800px] bg-blue-900/20 rounded-full blur-[100px] animate-pulse transition-transform duration-700 ease-out"
             style={{ transform: `translate(${mousePos.x * -30}px, ${mousePos.y * -30}px)` }}
          ></div>
          <div 
-            className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-cyan-900/10 rounded-full blur-[120px] animate-pulse delay-1000 transition-transform duration-700 ease-out"
+            className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-cyan-900/20 rounded-full blur-[100px] animate-pulse delay-1000 transition-transform duration-700 ease-out"
             style={{ transform: `translate(${mousePos.x * -20}px, ${mousePos.y * -20}px)` }}
          ></div>
          
-         {/* Scanline Overlay */}
-         <div className="scanline-overlay opacity-30"></div>
+         {/* 5. Scanline & Vignette Overlays */}
+         <div className="scanline-overlay opacity-20"></div>
+         <div className="absolute inset-0 vignette-radial pointer-events-none"></div>
     </div>
 
     {/* Main Scrolling Container - Managed by JS for Smooth Inertia */}
@@ -293,30 +328,27 @@ const App: React.FC = () => {
         )}
 
         {viewState === 'LOGIN' && (
-          <div className="flex-1 flex items-center justify-center p-4 animate-fade-in min-h-screen">
+          <div className={`flex-1 flex items-center justify-center p-4 min-h-screen transition-all duration-700 ${isExitingLogin ? 'opacity-0 scale-110 blur-lg' : 'animate-fade-in'}`}>
             <div className="max-w-md w-full glass-panel rounded-2xl p-8 md:p-10 text-center border border-white/10 shadow-[0_0_60px_rgba(0,0,0,0.5)] relative backdrop-blur-xl animate-warp-in">
               
-              {/* NEW SEAMLESS FLUX APERTURE ICON */}
-              <div className="w-32 h-32 mx-auto mb-8 relative flex items-center justify-center">
-                 {/* Ring 1: Outer Slow - Linear for seamless loop */}
-                 <div className="absolute inset-0 border border-slate-600/60 border-t-slate-400 rounded-full animate-spin-slow-linear"></div>
-                 
-                 {/* Ring 2: Middle Reverse - Linear */}
-                 <div className="absolute inset-3 border border-cyan-500/30 border-b-cyan-400 rounded-full animate-spin-reverse-linear"></div>
-                 
-                 {/* Core: Stable Glow */}
-                 <div className="absolute w-16 h-16 bg-blue-500/10 rounded-full shadow-[0_0_30px_rgba(59,130,246,0.2)] animate-breathe"></div>
-                 
-                 {/* Center Point */}
-                 <div className="absolute w-2 h-2 bg-white rounded-full shadow-[0_0_20px_cyan]"></div>
-                 
-                 {/* Orbiting Particles */}
-                 <div className="absolute inset-0 animate-[spin_4s_linear_infinite]">
-                    <div className="absolute top-0 left-1/2 w-1 h-1 bg-cyan-300 rounded-full shadow-[0_0_5px_cyan]"></div>
-                 </div>
-                 <div className="absolute inset-6 animate-[spin_6s_linear_infinite_reverse]">
-                    <div className="absolute bottom-0 left-1/2 w-1.5 h-1.5 bg-blue-400 rounded-full shadow-[0_0_5px_blue]"></div>
-                 </div>
+              {/* UMBRAX FLUX CORE LOGO - Animated (Matching Landing Page) */}
+              <div className="relative mb-8 w-32 h-32 mx-auto flex items-center justify-center">
+                  {/* Outer rotating ring - Linear seamless */}
+                  <div className="absolute inset-0 rounded-full border border-cyan-500/20 border-t-cyan-400 animate-spin-slow-linear shadow-[0_0_30px_rgba(6,182,212,0.1)]"></div>
+                  
+                  {/* Inner rotating ring - Linear seamless reverse */}
+                  <div className="absolute inset-4 rounded-full border border-blue-500/30 border-b-blue-400 animate-spin-reverse-linear"></div>
+                  
+                  {/* Core pulse - Sine wave breathing */}
+                  <div className="absolute w-12 h-12 bg-cyan-500/10 rounded-full animate-breathe shadow-[0_0_40px_cyan]"></div>
+                  
+                  {/* Center solid */}
+                  <div className="absolute w-2 h-2 bg-white rounded-full shadow-[0_0_20px_white]"></div>
+                  
+                  {/* Orbital particle */}
+                  <div className="absolute inset-0 animate-[spin_3s_linear_infinite]">
+                      <div className="absolute top-0 left-1/2 w-1 h-1 bg-cyan-300 rounded-full shadow-[0_0_5px_cyan]"></div>
+                  </div>
               </div>
     
               <h2 className="text-3xl font-bold mb-2 font-sans tracking-tight text-white">
@@ -366,12 +398,8 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {viewState === 'UNLOCK' && (
-          <UnlockSequence onComplete={handleUnlockComplete} />
-        )}
-
         {viewState === 'APP' && (
-          <div className="animate-fade-in min-h-screen">
+          <div className="min-h-screen">
              <Generator initialId={sessionId} />
           </div>
         )}

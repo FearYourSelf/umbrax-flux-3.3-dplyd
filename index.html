@@ -63,21 +63,17 @@
         mix-blend-mode: overlay;
       }
 
-      @keyframes hologram-reveal {
-        0% {
-          opacity: 0;
-          transform: scale(0.95) translateY(10px);
-          filter: blur(10px) brightness(2);
-        }
-        30% {
-          opacity: 1;
-          filter: blur(4px) brightness(1.5);
-        }
-        100% {
-          opacity: 1;
-          transform: scale(1) translateY(0);
-          filter: blur(0) brightness(1);
-        }
+      /* Cinematic Grain Overlay */
+      .noise-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 9999;
+        opacity: 0.03;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
       }
 
       @keyframes breathe-glow {
@@ -97,9 +93,10 @@
         100% { opacity: 1; transform: translateY(0); }
       }
       
-      @keyframes grid-movement {
+      /* Updated Grid Animations */
+      @keyframes grid-scroll {
         0% { background-position: 0 0; }
-        100% { background-position: 50px 50px; }
+        100% { background-position: 0 100px; }
       }
 
       @keyframes warp-in {
@@ -113,15 +110,6 @@
         100% { clip-path: circle(150% at 50% 50%); }
       }
       
-      @keyframes glitch {
-        0% { transform: translate(0) }
-        20% { transform: translate(-2px, 2px) }
-        40% { transform: translate(-2px, -2px) }
-        60% { transform: translate(2px, 2px) }
-        80% { transform: translate(2px, -2px) }
-        100% { transform: translate(0) }
-      }
-
       @keyframes implode {
         0% { transform: scale(1); opacity: 1; filter: blur(0); }
         50% { transform: scale(0.1); opacity: 0.8; filter: blur(5px); }
@@ -145,28 +133,132 @@
         to { transform: rotate(0deg); }
       }
 
-      @keyframes ripple-effect {
-        0% { transform: scale(0); opacity: 0.4; border-width: 0px; }
-        50% { opacity: 0.2; border-width: 1px; }
-        100% { transform: scale(4); opacity: 0; border-width: 0px; }
+      /* COCKPIT ASSEMBLY ANIMATIONS */
+      @keyframes slide-down-in {
+        from { transform: translateY(-100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      @keyframes slide-up-in {
+        from { transform: translateY(100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      @keyframes slide-right-in {
+        from { transform: translateX(-50px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes slide-left-in {
+        from { transform: translateX(50px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
       }
 
-      /* Background Utilities */
-      .bg-cyber-grid {
-        background-size: 50px 50px;
+      /* SCAN REVEAL ANIMATION */
+      @keyframes scan-reveal {
+        0% { clip-path: inset(0 0 100% 0); filter: brightness(2) saturate(0) contrast(1.5); }
+        50% { filter: brightness(1.5) saturate(0.5) contrast(1.2); }
+        100% { clip-path: inset(0 0 0 0); filter: brightness(1) saturate(1) contrast(1); }
+      }
+
+      @keyframes scan-line-move {
+        0% { top: 0; opacity: 1; }
+        95% { opacity: 1; }
+        100% { top: 100%; opacity: 0; }
+      }
+
+      /* New Logo Animations */
+      @keyframes draw-path {
+        to { stroke-dashoffset: 0; }
+      }
+      
+      @keyframes fill-fade-in {
+        to { fill-opacity: 1; }
+      }
+      
+      @keyframes float-gentle {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-5px); }
+      }
+
+      /* Glitch Effect */
+      @keyframes glitch-rgb {
+          0% { transform: translate(0); filter: drop-shadow(0 0 0 transparent); }
+          20% { transform: translate(-2px, 2px); filter: drop-shadow(2px -2px 0 #ff0000) drop-shadow(-2px 2px 0 #0000ff); }
+          40% { transform: translate(2px, -2px); filter: drop-shadow(-2px 2px 0 #ff0000) drop-shadow(2px -2px 0 #0000ff); }
+          60% { transform: translate(0); filter: drop-shadow(0 0 0 transparent); }
+          80% { transform: translate(-1px, -1px); filter: drop-shadow(1px 1px 0 #00ff00); }
+          100% { transform: translate(0); filter: drop-shadow(0 0 0 transparent); }
+      }
+      
+      .animate-glitch-subtle {
+          animation: glitch-rgb 0.5s linear forwards;
+      }
+
+      .animate-scan {
+        animation: scan-reveal 1.2s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+        position: relative;
+      }
+
+      .animate-scan::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: #22d3ee; /* Cyan-400 */
+        box-shadow: 0 0 15px #22d3ee, 0 0 30px rgba(34, 211, 238, 0.5);
+        animation: scan-line-move 1.2s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+        z-index: 20;
+        pointer-events: none;
+      }
+
+      /* --- NEW BACKGROUND UTILITIES --- */
+      
+      /* 3D Perspective Grid */
+      .perspective-grid-floor {
+        position: absolute;
+        bottom: 0;
+        left: -50%;
+        width: 200%;
+        height: 100%;
         background-image: 
-          linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-        /* Removed animation here to control via Parallax in JS, or keep strictly linear */
-        animation: grid-movement 60s linear infinite;
+          linear-gradient(rgba(6, 182, 212, 0.15) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(6, 182, 212, 0.15) 1px, transparent 1px);
+        background-size: 100px 100px;
+        transform-origin: bottom;
+        transform: perspective(300px) rotateX(60deg);
+        animation: grid-scroll 2s linear infinite;
+        /* Mask fade out at top */
+        mask-image: linear-gradient(to bottom, transparent 0%, black 40%);
+        -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 40%);
+      }
+
+      /* Ceiling Grid Pattern */
+      .bg-cyber-grid {
+        background-image: 
+          linear-gradient(rgba(6, 182, 212, 0.15) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(6, 182, 212, 0.15) 1px, transparent 1px);
+        background-size: 100px 100px;
+      }
+
+      /* Subtle Aurora Gradient - Updated for better visibility */
+      @keyframes aurora-shift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      
+      .bg-animated-gradient {
+        background: linear-gradient(270deg, #020617, #312e81, #0c4a6e, #020617); /* Slate, Indigo, Sky */
+        background-size: 400% 400%;
+        animation: aurora-shift 30s ease infinite;
+      }
+
+      /* Heavy Vignette */
+      .vignette-radial {
+        background: radial-gradient(circle at center, transparent 20%, rgba(2, 6, 23, 0.8) 90%, #020617 100%);
       }
 
       .animate-ping-slow {
         animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite;
-      }
-
-      .animate-hologram {
-        animation: hologram-reveal 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
       }
 
       .animate-breathe {
@@ -189,10 +281,6 @@
         animation: iris-open 1.2s cubic-bezier(0.65, 0, 0.35, 1) forwards;
       }
       
-      .animate-glitch {
-        animation: glitch 0.2s linear infinite;
-      }
-      
       .animate-implode {
         animation: implode 0.4s cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
       }
@@ -201,7 +289,6 @@
         animation: shockwave 0.8s ease-out forwards;
       }
 
-      /* New Seamless Animations */
       .animate-spin-slow-linear {
         animation: spin-seamless 12s linear infinite;
       }
@@ -213,17 +300,12 @@
       .animate-spin-reverse-linear {
         animation: spin-seamless-reverse 15s linear infinite;
       }
-      
-      .ripple {
-        position: absolute;
-        border-radius: 50%;
-        border: 1px solid rgba(6, 182, 212, 0.5); /* Cyan, thinner, less opaque */
-        transform: scale(0);
-        animation: ripple-effect 0.6s linear;
-        pointer-events: none;
-        z-index: 9999;
-        box-shadow: 0 0 5px rgba(6, 182, 212, 0.3);
-      }
+
+      /* Cockpit Classes */
+      .animate-slide-down { animation: slide-down-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .animate-slide-up { animation: slide-up-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .animate-slide-right { animation: slide-right-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .animate-slide-left { animation: slide-left-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
       /* Utility for inputs to remove autocomplete background */
       input:-webkit-autofill,
@@ -232,6 +314,17 @@
       input:-webkit-autofill:active{
           -webkit-box-shadow: 0 0 0 30px #0f172a inset !important;
           -webkit-text-fill-color: white !important;
+      }
+
+      /* Cursor Trail Canvas */
+      #cursor-canvas {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          z-index: 9998;
       }
     </style>
   <script type="importmap">
@@ -249,6 +342,7 @@
 </head>
   <body>
     <div id="root"></div>
+    <div class="noise-overlay"></div>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>

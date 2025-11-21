@@ -63,12 +63,13 @@ export const generateImage = async (
     : `- Aesthetic Style: ${options.aesthetic}`;
 
   const enhancedPrompt = `
-    Create a visual representation of: "${prompt}".
+    [SYSTEM_DIRECTIVE: GENERATE_VISUAL_ASSET]
+    SUBJECT: "${prompt}"
     
-    ${aestheticConfig ? "Configuration:" : ""}
-    ${aestheticConfig}
+    ${aestheticConfig ? `PARAMETERS: ${aestheticConfig}` : ""}
     
-    Ensure the image is high quality, detailed, and accurate to the request.
+    CONSTRAINT: OUTPUT IMAGE ONLY. DO NOT GENERATE CONVERSATIONAL TEXT, COMMENTARY, OR FEEDBACK.
+    MODE: HIGH_FIDELITY
   `;
 
   const apiRatio = getValidApiRatio(options.aspectRatio);
@@ -176,12 +177,18 @@ export const editImage = async (
       aspectRatio: apiRatio
   };
 
+  const strictInstruction = `
+    [SYSTEM_DIRECTIVE: EDIT_VISUAL]
+    TASK: ${editInstruction}
+    CONSTRAINT: OUTPUT IMAGE ONLY. NO CONVERSATIONAL TEXT.
+  `;
+
   const response = await ai.models.generateContent({
     model: options.model, 
     contents: {
       parts: [
         {
-          text: editInstruction,
+          text: strictInstruction,
         },
         {
           inlineData: {
