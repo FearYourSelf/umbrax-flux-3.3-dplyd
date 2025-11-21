@@ -28,7 +28,7 @@ export enum Aesthetic {
 
 export enum AIModel {
   FLASH = "gemini-2.5-flash-image",
-  PRO = "gemini-3-pro-image-preview"
+  IMAGEN = "imagen-3.0-generate-001"
 }
 
 export interface GenerationOptions {

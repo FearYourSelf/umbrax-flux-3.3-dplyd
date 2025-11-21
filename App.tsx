@@ -82,27 +82,44 @@ const BootSequence: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   );
 };
 
-// --- TRANSITION COMPONENT 2: UNLOCK SEQUENCE (Login -> App) ---
+// --- TRANSITION COMPONENT 2: FLUX CORE OVERLOAD (Login -> App) ---
 const UnlockSequence: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const [phase, setPhase] = useState<'ACCESS' | 'IMPLODE' | 'EXPLODE'>('ACCESS');
+
   useEffect(() => {
-    const t = setTimeout(onComplete, 1500);
-    return () => clearTimeout(t);
+    // Phase 1: Show Access Granted (already rendered initially)
+    // Phase 2: Implode (Collapse to center)
+    const t1 = setTimeout(() => setPhase('IMPLODE'), 1000);
+    
+    // Phase 3: Explode (Shockwave)
+    const t2 = setTimeout(() => setPhase('EXPLODE'), 1400); // 400ms for implosion
+    
+    // Phase 4: Finish (Reveal App)
+    const t3 = setTimeout(onComplete, 2200); // 800ms for explosion/fade
+
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-       {/* The "Warp" effect - Everything scales up rapidly */}
-       <div className="absolute inset-0 bg-cyan-500/10 animate-[ping_0.5s_ease-out] mix-blend-screen"></div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden pointer-events-none">
        
-       <div className="relative z-10 flex flex-col items-center justify-center transform transition-all duration-1000 scale-[20] opacity-0">
-          <div className="w-32 h-32 border-4 border-green-400 rounded-full flex items-center justify-center shadow-[0_0_100px_#4ade80] bg-green-900/20">
-             <svg className="w-16 h-16 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-          </div>
-          <div className="mt-4 text-green-400 font-bold tracking-[1em] text-2xl uppercase whitespace-nowrap">Access Granted</div>
-       </div>
+       {/* CONTENT TO IMPLODE */}
+       {phase !== 'EXPLODE' && (
+           <div className={`relative z-10 flex flex-col items-center justify-center transition-all ${phase === 'IMPLODE' ? 'animate-implode' : ''}`}>
+              <div className="w-32 h-32 border-4 border-green-400 rounded-full flex items-center justify-center shadow-[0_0_50px_#4ade80] bg-green-900/20 backdrop-blur-md">
+                 <svg className="w-16 h-16 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+              </div>
+              <div className="mt-6 text-green-400 font-bold tracking-[0.5em] text-2xl uppercase whitespace-nowrap drop-shadow-[0_0_10px_rgba(74,222,128,0.5)]">Access Granted</div>
+           </div>
+       )}
 
-       {/* Flash to clear screen */}
-       <div className="absolute inset-0 bg-white animate-[fade-in_0.2s_ease-out_reverse_forwards] delay-700"></div>
+       {/* SHOCKWAVE EXPLOSION */}
+       {phase === 'EXPLODE' && (
+           <div className="absolute inset-0 flex items-center justify-center">
+               {/* Massive Gradient Ring that scales up without pixelation */}
+               <div className="w-[100vmax] h-[100vmax] rounded-full bg-[radial-gradient(circle,rgba(6,182,212,0)_20%,rgba(6,182,212,1)_40%,rgba(224,242,254,0.8)_50%,rgba(6,182,212,1)_60%,rgba(6,182,212,0)_80%)] animate-shockwave opacity-0"></div>
+           </div>
+       )}
     </div>
   );
 };
@@ -114,6 +131,9 @@ const App: React.FC = () => {
   const [viewState, setViewState] = useState<AppState>('INTRO');
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState(false);
+  
+  // Generate a random session ID on mount
+  const [sessionId] = useState(() => Math.floor(10000000000 + Math.random() * 90000000000).toString());
 
   const handleIntroComplete = () => {
     setViewState('BOOT');
@@ -125,7 +145,8 @@ const App: React.FC = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === 'genygen') {
+    // Check for valid passwords
+    if (passwordInput === 'genygen' || passwordInput === 'nsdadmin') {
       setAuthError(false);
       setViewState('UNLOCK');
     } else {
@@ -238,8 +259,8 @@ const App: React.FC = () => {
         )}
 
         {viewState === 'APP' && (
-          <div className="animate-iris">
-             <Generator />
+          <div className="animate-fade-in">
+             <Generator initialId={sessionId} />
           </div>
         )}
         
@@ -255,14 +276,14 @@ const App: React.FC = () => {
                         SYSTEM READY
                     </span>
                     <span className="hidden md:inline text-slate-700">|</span>
-                    <span className="hidden md:inline">MODEL: 3.5-UMBRAX_PRO</span>
+                    <span className="hidden md:inline">MODEL: UMBRAX-IRIS_5.1</span>
                     <span className="hidden md:inline text-slate-700">|</span>
                     <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
                         F&Q // SYNTHESIS CORE
                     </a>
                 </div>
                 <div className="opacity-70">
-                    ID: 11986660500
+                    ID: {sessionId}
                 </div>
             </div>
         )}

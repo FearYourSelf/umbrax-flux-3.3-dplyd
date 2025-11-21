@@ -15,12 +15,36 @@ import { generateImage, editImage, getPromptEnhancements } from '../services/gem
 import { extendImage, applyImageAdjustments, applyOutline, cropImage } from '../services/imageUtils';
 import Loader from './Loader';
 
-const Generator: React.FC = () => {
+interface GeneratorProps {
+  initialId?: string;
+}
+
+interface LogEntry {
+    id: string;
+    timestamp: string;
+    type: 'info' | 'error' | 'success' | 'system' | 'warn';
+    message: string;
+}
+
+const THEMATIC_ERRORS = [
+    "NEURAL LINK SEVERED: DATA PACKET LOSS",
+    "FLUX CORE DIVERGENCE DETECTED",
+    "SYNTHESIS MATRIX UNSTABLE",
+    "QUANTUM ENTANGLEMENT FAILURE",
+    "MEMORY BUFFER OVERFLOW IN SECTOR 7",
+    "RENDER PIPELINE DESYNCHRONIZATION",
+    "AI MODEL HALLUCINATION THRESHOLD EXCEEDED"
+];
+
+const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const [prompt, setPrompt] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   
+  // Default Session ID (Random if not provided)
+  const [defaultId] = useState(initialId || Math.floor(10000000000 + Math.random() * 90000000000).toString());
+
   // Upload State
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,8 +110,119 @@ const Generator: React.FC = () => {
   // Download State
   const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
 
+  // Console State
+  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
+  const [consoleInput, setConsoleInput] = useState('');
+  const consoleEndRef = useRef<HTMLDivElement>(null);
+  const consoleInputRef = useRef<HTMLInputElement>(null);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
   const imageWrapperRef = useRef<HTMLDivElement>(null);
+
+  // Helper to log to console
+  const logToConsole = (message: string, type: LogEntry['type'] = 'info') => {
+    const newLog: LogEntry = {
+        id: Date.now().toString() + Math.random(),
+        timestamp: new Date().toLocaleTimeString([], { hour12: false }) + '.' + new Date().getMilliseconds().toString().padStart(3, '0'),
+        type,
+        message
+    };
+    setConsoleLogs(prev => [...prev, newLog]);
+  };
+
+  // Scroll console to bottom
+  useEffect(() => {
+    if (isConsoleOpen && consoleEndRef.current) {
+        consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [consoleLogs, isConsoleOpen]);
+
+  // Focus console input without scrolling
+  useEffect(() => {
+      if (isConsoleOpen && consoleInputRef.current) {
+          // Slight delay to ensure render is complete
+          setTimeout(() => {
+              consoleInputRef.current?.focus({ preventScroll: true });
+          }, 50);
+      }
+  }, [isConsoleOpen]);
+
+  const toggleConsole = () => {
+      setIsConsoleOpen(!isConsoleOpen);
+  };
+
+  // Initialize System Log
+  useEffect(() => {
+      logToConsole("UMBRAX KERNEL INITIALIZED...", 'system');
+      logToConsole(`SESSION ID: ${initialId || defaultId}`, 'info');
+      logToConsole("CONNECTING TO NSD-CORE/17B API NODE...", 'warn');
+      logToConsole("CONNECTION ESTABLISHED. READY FOR INPUT.", 'success');
+  }, []);
+
+  // Handle Console Commands
+  const handleConsoleCommand = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+          const cmd = consoleInput.trim().toLowerCase();
+          logToConsole(`> ${consoleInput}`, 'info');
+          setConsoleInput('');
+
+          switch(cmd) {
+              case 'help':
+                  logToConsole("COMMANDS: HELP, SYS_STATUS, CLEAR, VER, FLUX_CHECK, PURGE, LS, PING, OVERRIDE, UPTIME", 'system');
+                  break;
+              case 'clear':
+                  setConsoleLogs([]);
+                  logToConsole("CONSOLE BUFFER CLEARED", 'success');
+                  break;
+              case 'sys_status':
+                  logToConsole("ALL SYSTEMS NOMINAL.", 'success');
+                  logToConsole(`MEMORY USAGE: ${Math.floor(Math.random() * 30) + 10}%`, 'info');
+                  logToConsole(`CPU LOAD: ${Math.floor(Math.random() * 50) + 20}%`, 'info');
+                  logToConsole(`FLUX CAPACITOR: ONLINE`, 'success');
+                  break;
+              case 'ver':
+                  logToConsole("UMBRAX FLUX v3.0.1 (STABLE)", 'info');
+                  logToConsole("BUILD: 2024-REL-C", 'info');
+                  break;
+              case 'flux_check':
+                  logToConsole("CALIBRATING FLUX EMITTERS...", 'warn');
+                  setTimeout(() => logToConsole("EMITTERS OPTIMIZED. EFFICIENCY: 99.9%", 'success'), 800);
+                  break;
+              case 'purge':
+                  logToConsole("INITIATING CACHE PURGE...", 'error');
+                  setTimeout(() => logToConsole("CACHE CLEARED. TEMPORARY FILES DELETED.", 'success'), 1000);
+                  break;
+              case 'ls':
+                  logToConsole("drwxr-xr-x  root  system  /var/flux_cache", 'info');
+                  logToConsole("drwxr-xr-x  admin system  /usr/models/weights", 'info');
+                  logToConsole("-rw-r--r--  root  root    config.sys", 'info');
+                  logToConsole("-rw-r--r--  user  group   session_key.pem", 'info');
+                  break;
+              case 'override':
+                  logToConsole("SECURITY OVERRIDE INITIATED...", 'warn');
+                  setTimeout(() => logToConsole("ACCESS DENIED. LEVEL 5 CLEARANCE REQUIRED.", 'error'), 1200);
+                  break;
+              case 'uptime':
+                  const uptime = Math.floor(performance.now() / 1000);
+                  logToConsole(`SYSTEM UPTIME: ${uptime} SECONDS`, 'info');
+                  break;
+              case 'matrix':
+                  logToConsole("WAKE UP, NEO...", 'success');
+                  setTimeout(() => logToConsole("THE MATRIX HAS YOU...", 'success'), 1000);
+                  setTimeout(() => logToConsole("FOLLOW THE WHITE RABBIT.", 'success'), 2000);
+                  break;
+              case 'ping':
+                  logToConsole("PING nsd-core.local (192.168.1.1): 56 data bytes", 'info');
+                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=0 time=0.042 ms", 'info'), 300);
+                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=1 time=0.038 ms", 'info'), 600);
+                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=2 time=0.045 ms", 'info'), 900);
+                  break;
+              default:
+                  if (cmd !== '') logToConsole(`UNKNOWN COMMAND: "${cmd}"`, 'error');
+          }
+      }
+  };
 
   // Load presets & Gallery on mount
   useEffect(() => {
@@ -95,6 +230,7 @@ const Generator: React.FC = () => {
     if (savedPresets) {
       try {
         setPresets(JSON.parse(savedPresets));
+        logToConsole("USER PRESETS LOADED", 'success');
       } catch (e) { console.error("Failed to load presets", e); }
     }
   }, []);
@@ -168,6 +304,7 @@ const Generator: React.FC = () => {
       const newIndex = historyIndex - 1;
       setHistoryIndex(newIndex);
       setGeneratedImage(history[newIndex]);
+      logToConsole("HISTORY: UNDO ACTION PERFORMED", 'info');
     }
   };
 
@@ -176,6 +313,7 @@ const Generator: React.FC = () => {
       const newIndex = historyIndex + 1;
       setHistoryIndex(newIndex);
       setGeneratedImage(history[newIndex]);
+      logToConsole("HISTORY: REDO ACTION PERFORMED", 'info');
     }
   };
 
@@ -184,11 +322,13 @@ const Generator: React.FC = () => {
     setHistory([img]);
     setHistoryIndex(0);
     setShowGallery(false);
+    logToConsole(`GALLERY: IMAGE ID ${img.id} LOADED`, 'success');
   };
 
   const deleteFromGallery = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setGallery(prev => prev.filter(img => img.id !== id));
+    logToConsole(`GALLERY: IMAGE ID ${id} DELETED`, 'warn');
   };
 
   // Presets Logic
@@ -204,11 +344,13 @@ const Generator: React.FC = () => {
     localStorage.setItem('infogenius_presets', JSON.stringify(updatedPresets));
     setNewPresetName('');
     setShowPresetSave(false);
+    logToConsole(`PRESET SAVED: ${newPreset.name}`, 'success');
   };
 
   const loadPreset = (preset: Preset) => {
     setOptions(preset.options);
     setPresetDropdownOpen(false);
+    logToConsole(`PRESET LOADED: ${preset.name}`, 'info');
   };
 
   const deletePreset = (e: React.MouseEvent, id: string) => {
@@ -216,6 +358,7 @@ const Generator: React.FC = () => {
     const updatedPresets = presets.filter(p => p.id !== id);
     setPresets(updatedPresets);
     localStorage.setItem('infogenius_presets', JSON.stringify(updatedPresets));
+    logToConsole(`PRESET DELETED`, 'warn');
   };
 
   // Image Upload Handler
@@ -226,10 +369,8 @@ const Generator: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
-      // Remove prefix for API compatibility later if needed, but keep for preview
-      // For preview we need the prefix. For API we need to strip it.
-      // We store the full string for preview and strip it when calling API.
       setUploadedImage(result);
+      logToConsole(`IMAGE UPLOADED: ${file.name}`, 'success');
     };
     reader.readAsDataURL(file);
   };
@@ -239,6 +380,7 @@ const Generator: React.FC = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+    logToConsole("UPLOAD BUFFER CLEARED", 'info');
   };
 
   // Generation Logic
@@ -248,6 +390,7 @@ const Generator: React.FC = () => {
     setError(null);
     setSelectionBox(null);
     setShowSuggestions(false);
+    logToConsole(`INITIATING GENERATION: "${prompt.substring(0, 30)}..."`, 'info');
 
     // Parse custom ratio if needed
     let finalOptions = { ...options };
@@ -256,7 +399,9 @@ const Generator: React.FC = () => {
         if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
             finalOptions.customRatioValue = parts[0] / parts[1];
         } else {
-            setError("Invalid Custom Ratio. Use format W:H (e.g., 21:9)");
+            const msg = "Invalid Custom Ratio. Use format W:H (e.g., 21:9)";
+            setError(msg); // Visual error
+            logToConsole(msg, 'error'); // Log error
             setIsLoading(false);
             return;
         }
@@ -266,16 +411,30 @@ const Generator: React.FC = () => {
       // If uploaded image exists, pass it to the service (stripping the data URL prefix)
       const inputImageBase64 = uploadedImage ? uploadedImage.split(',')[1] : undefined;
       
+      if (inputImageBase64) logToConsole("MULTIMODAL INPUT DETECTED", 'info');
+
       const rawImg = await generateImage(prompt, finalOptions, inputImageBase64);
       const imgWithId = { ...rawImg, id: Date.now().toString() };
       updateHistory(imgWithId, true);
+      logToConsole("GENERATION COMPLETE. IMAGE RENDERED.", 'success');
       
       // Clear uploaded image after successful generation
       if (inputImageBase64) {
         clearUploadedImage();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate image");
+      const realErrorMessage = err instanceof Error ? err.message : "Unknown error";
+      // Log the REAL error to the console
+      logToConsole(`CRITICAL ERROR: ${realErrorMessage}`, 'error');
+      
+      // Check if it's a quota error to show a specific thematic message
+      if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
+          setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
+      } else {
+          // Show a random thematic error for other issues
+          const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+          setError(randomError);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -284,12 +443,15 @@ const Generator: React.FC = () => {
   const handlePromptSuggest = async () => {
     if (!prompt.trim()) return;
     setIsLoading(true);
+    logToConsole("QUERYING AI FOR PROMPT ENHANCEMENTS...", 'info');
     try {
         const sugs = await getPromptEnhancements(prompt);
         setSuggestions(sugs);
         setShowSuggestions(true);
+        logToConsole("SUGGESTIONS RECEIVED", 'success');
     } catch (e) {
-        console.error(e);
+        const msg = e instanceof Error ? e.message : "Unknown";
+        logToConsole(`SUGGESTION FAILED: ${msg}`, 'error');
     } finally {
         setIsLoading(false);
     }
@@ -299,12 +461,14 @@ const Generator: React.FC = () => {
     if (!editPrompt.trim() || !generatedImage) return;
     setIsLoading(true);
     setError(null);
+    logToConsole(`INITIATING EDIT: "${editPrompt.substring(0, 30)}..."`, 'info');
 
     try {
       let finalEditPrompt = editPrompt;
       if (selectionBox) {
         const { x, y, w, h } = selectionBox;
         finalEditPrompt = `${editPrompt}. IMPORTANT: Apply this change EXCLUSIVELY to the region bounded by Top: ${Math.round(y)}%, Left: ${Math.round(x)}%, Bottom: ${Math.round(y + h)}%, Right: ${Math.round(x + w)}%. Preserve the rest.`;
+        logToConsole(`REGION LOCK ACTIVE: [${Math.round(x)},${Math.round(y)}]`, 'warn');
       }
 
       const rawImg = await editImage(generatedImage, finalEditPrompt, options);
@@ -313,8 +477,17 @@ const Generator: React.FC = () => {
       setEditPrompt(''); 
       setSelectionBox(null);
       setIsTargetMode(false);
+      logToConsole("EDIT COMPLETE", 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to edit image");
+      const realErrorMessage = err instanceof Error ? err.message : "Unknown error";
+      logToConsole(`EDIT FAILED: ${realErrorMessage}`, 'error');
+      
+      if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
+          setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
+      } else {
+          const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+          setError(randomError);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -324,6 +497,7 @@ const Generator: React.FC = () => {
     if (!generatedImage) return;
     setIsLoading(true);
     setError(null);
+    logToConsole("INITIATING OUTPAINTING SEQUENCE...", 'info');
 
     try {
         const extendedBase64 = await extendImage(generatedImage.base64, 1.5);
@@ -332,8 +506,17 @@ const Generator: React.FC = () => {
         const rawImg = await editImage(tempImage, outpaintPrompt, options);
         const imgWithId = { ...rawImg, id: Date.now().toString() };
         updateHistory(imgWithId, false);
+        logToConsole("OUTPAINTING COMPLETE", 'success');
     } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to extend image");
+        const realErrorMessage = err instanceof Error ? err.message : "Unknown error";
+        logToConsole(`OUTPAINT FAILED: ${realErrorMessage}`, 'error');
+        
+        if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
+             setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
+        } else {
+             const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+             setError(randomError);
+        }
     } finally {
         setIsLoading(false);
     }
@@ -344,6 +527,7 @@ const Generator: React.FC = () => {
     if (!generatedImage) return;
     setIsLoading(true);
     setProcessingMessage("Applying filters...");
+    logToConsole("APPLYING CLIENT-SIDE FILTERS...", 'info');
     
     setTimeout(async () => {
       try {
@@ -357,9 +541,10 @@ const Generator: React.FC = () => {
         updateHistory(newImg, false);
         setAdjustments({ brightness: 100, contrast: 100, saturation: 100, blur: 0, sepia: 0, grayscale: 0 });
         setShowFilters(false);
+        logToConsole("FILTERS APPLIED SUCCESSFULLY", 'success');
       } catch (e) {
-        console.error(e);
-        setError("Failed to apply filters");
+        logToConsole("FILTER ERROR", 'error');
+        setError("FILTER APPLICATION FAILED");
       } finally {
         setIsLoading(false);
         setProcessingMessage("");
@@ -370,6 +555,7 @@ const Generator: React.FC = () => {
   const handleApplyCrop = async () => {
       if (!generatedImage || !selectionBox) return;
       setIsLoading(true);
+      logToConsole("CROPPING IMAGE...", 'info');
       try {
         const newBase64 = await cropImage(generatedImage.base64, selectionBox);
         const newImg: GeneratedImage = {
@@ -381,9 +567,10 @@ const Generator: React.FC = () => {
         updateHistory(newImg, false);
         setSelectionBox(null);
         setIsTargetMode(false);
+        logToConsole("CROP COMPLETE", 'success');
       } catch (e) {
-          console.error(e);
-          setError("Failed to crop");
+          logToConsole("CROP FAILED", 'error');
+          setError("CROP FAILED");
       } finally {
           setIsLoading(false);
       }
@@ -393,6 +580,7 @@ const Generator: React.FC = () => {
     if (!generatedImage) return;
     setIsLoading(true);
     setProcessingMessage("Analyzing edge geometry...");
+    logToConsole("CALCULATING EDGE GEOMETRY...", 'info');
 
     setTimeout(async () => {
       try {
@@ -404,9 +592,10 @@ const Generator: React.FC = () => {
           timestamp: Date.now()
         };
         updateHistory(newImg, false);
+        logToConsole("OUTLINE EFFECT RENDERED", 'success');
       } catch (e) {
-        console.error(e);
-        setError("Failed to generate outline");
+        logToConsole("OUTLINE EFFECT FAILED", 'error');
+        setError("OUTLINE EFFECT FAILED");
       } finally {
         setIsLoading(false);
         setProcessingMessage("");
@@ -428,6 +617,7 @@ const Generator: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     setShowDownloadConfirm(false);
+    logToConsole(`FILE DOWNLOADED: umbraflux-${generatedImage.timestamp}.png`, 'success');
   };
 
   // --- Interaction Handlers (Zoom, Pan, Selection) ---
@@ -673,8 +863,8 @@ const Generator: React.FC = () => {
               value={options.model}
               onChange={(e) => setOptions({...options, model: e.target.value as AIModel})}
             >
-              <option value={AIModel.FLASH}>UMBRAX_Pro</option>
-              <option value={AIModel.PRO}>UMBRAX_Flux</option>
+              <option value={AIModel.FLASH}>UMBRAX-Iris 5.1</option>
+              <option value={AIModel.IMAGEN}>UMBRX-Gen 2.5</option>
             </select>
           </div>
 
@@ -716,9 +906,9 @@ const Generator: React.FC = () => {
           <div className="relative group lg:col-span-1">
               <label className="block text-[10px] text-slate-600 uppercase tracking-wider mb-1.5 ml-1 font-mono">Size</label>
               <select 
-                  className={`w-full border rounded-lg px-2 py-2.5 text-sm text-center outline-none transition-all ${options.model === AIModel.FLASH ? 'bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800/50 border-slate-700 text-white hover:border-slate-500 cursor-pointer focus:ring-1 focus:ring-cyan-400'}`}
+                  className={`w-full border rounded-lg px-2 py-2.5 text-sm text-center outline-none transition-all bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed`}
                   value={options.resolution}
-                  disabled={options.model === AIModel.FLASH}
+                  disabled={true}
                   onChange={(e) => setOptions({...options, resolution: e.target.value as ImageResolution})}
               >
                   {Object.values(ImageResolution).map(val => <option key={val} value={val}>{val}</option>)}
@@ -737,10 +927,16 @@ const Generator: React.FC = () => {
         </div>
       </div>
 
-      {/* Error Message */}
+      {/* Error Message (THEMATIC) */}
       {error && (
-        <div className="w-full mb-8 p-4 bg-red-500/10 border border-red-500/40 text-red-200 rounded-xl flex items-center gap-3 animate-fade-in backdrop-blur-sm">
-          <span className="font-bold">Error:</span> {error}
+        <div className="w-full mb-8 p-4 bg-red-900/20 border border-red-500/50 text-red-300 rounded-xl flex items-center gap-4 animate-fade-in backdrop-blur-sm shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+          <div className="p-2 bg-red-500/20 rounded-full animate-pulse">
+              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          </div>
+          <div className="flex-1">
+             <p className="font-mono font-bold text-sm tracking-wider uppercase">{error}</p>
+             <p className="text-xs text-red-400/60 font-mono mt-1">CHECK SYSTEM CONSOLE FOR DIAGNOSTICS.</p>
+          </div>
         </div>
       )}
 
@@ -940,122 +1136,186 @@ const Generator: React.FC = () => {
                       <button
                           onClick={() => { setIsTargetMode(!isTargetMode); if (isTargetMode) setSelectionBox(null); }}
                           className={`whitespace-nowrap px-3 py-2 rounded-lg border text-sm transition-all ${isTargetMode ? 'bg-cyan-900/80 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]' : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'}`}
-                          title="Select Area for Inpainting"
                       >
-                          Select / Inpaint
+                          {isTargetMode ? 'Target Active' : 'Select Area'}
                       </button>
-                      <button onClick={handleEdit} disabled={isLoading || !editPrompt.trim()} className="whitespace-nowrap px-4 py-2 bg-gradient-to-r from-slate-800 to-slate-700 hover:from-cyan-900 hover:to-blue-900 text-cyan-400 text-sm font-medium rounded-lg border border-cyan-500/30 hover:border-cyan-400 transition-all">
-                         Run Edit
-                      </button>
-                      <button onClick={initiateDownload} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-white/10 transition-colors" title="Download">
-                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      <button onClick={initiateDownload} className="whitespace-nowrap px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-900/30 transition-colors">
+                          Download
                       </button>
                   </div>
                </div>
              </div>
           </div>
         )}
-      </div>
-      
-      {/* Gallery Modal */}
-      {showGallery && (
-        <div className="fixed inset-0 z-[60] flex flex-col bg-[#020617]/95 backdrop-blur-md animate-fade-in">
-          <div className="flex justify-between items-center p-6 border-b border-white/10 bg-[#020617]">
-             <h2 className="text-2xl font-bold text-white tracking-tight font-sans flex items-center gap-3">
-                Session Gallery
-             </h2>
-             <button onClick={() => setShowGallery(false)} className="p-2 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-             </button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-6">
-            {gallery.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                    <svg className="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                    <p>No images generated in this session yet.</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {gallery.map((img) => (
-                        <div key={img.id} className="group relative aspect-square rounded-xl overflow-hidden bg-slate-900 border border-white/10 cursor-pointer hover:border-cyan-500/50 transition-all shadow-lg hover:shadow-cyan-500/20" onClick={() => loadFromGallery(img)}>
-                            <img src={`data:${img.mimeType};base64,${img.base64}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt="Gallery item" />
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <span className="text-cyan-400 font-mono text-xs border border-cyan-400 px-2 py-1 rounded">LOAD</span>
-                            </div>
-                            <button onClick={(e) => deleteFromGallery(e, img.id)} className="absolute top-2 right-2 p-1.5 bg-red-500/80 text-white rounded-full hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-all transform scale-90 hover:scale-100">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-          </div>
-        </div>
-      )}
-      
-      {/* Save Preset Modal */}
-      {showPresetSave && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl border-t border-white/10">
-            <h3 className="text-lg font-bold text-white mb-4">Save Configuration</h3>
-            <input
-              type="text"
-              value={newPresetName}
-              onChange={(e) => setNewPresetName(e.target.value)}
-              placeholder="Enter preset name..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white mb-6 focus:ring-1 focus:ring-cyan-500 outline-none"
-              autoFocus
-            />
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowPresetSave(false)} className="px-4 py-2 text-slate-400 hover:text-white transition-colors">Cancel</button>
-              <button onClick={savePreset} disabled={!newPresetName.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors shadow-lg">Save Preset</button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Download Confirmation Modal */}
-      {showDownloadConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl text-center border-t border-white/10">
-            <div className="w-12 h-12 bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-               <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+        {/* Empty State / Intro Visuals could go here if needed */}
+        {!generatedImage && !isLoading && !error && (
+            <div className="flex flex-col items-center justify-center mt-10 opacity-30 pointer-events-none select-none">
+                <div className="w-32 h-32 border border-slate-700 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                    <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
+                </div>
+                <p className="text-sm font-mono tracking-[0.5em] text-slate-500 uppercase">Waiting for Input</p>
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Download Image?</h3>
-            <p className="text-slate-400 text-sm mb-6">This will save the high-resolution render to your local device.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowDownloadConfirm(false)} className="flex-1 px-4 py-3 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={performDownload} className="flex-1 px-4 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors shadow-lg hover:shadow-blue-500/20">Confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      <div className="scanline-overlay opacity-20 pointer-events-none"></div>
+        )}
+
+      </div>
     </div>
 
-      {/* Footer Status Bar - MOVED OUTSIDE OF ANIMATED CONTAINER */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-          <div className="flex items-center gap-4">
-              <span className="flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                      <span className={`animate-ping-slow absolute inline-flex h-full w-full rounded-full ${isLoading ? 'bg-amber-400' : 'bg-green-400'} opacity-75`}></span>
-                      <span className={`relative inline-flex rounded-full h-2 w-2 ${isLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
-                  </span>
-                  {isLoading ? 'PROCESSING DATA' : 'SYSTEM READY'}
-              </span>
-              <span className="hidden md:inline text-slate-700">|</span>
-              <span className="hidden md:inline">MODEL: 3.5-UMBRAX_PRO</span>
-              <span className="hidden md:inline text-slate-700">|</span>
-              <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
-                  F&Q // SYNTHESIS CORE
-              </a>
-          </div>
-          <div className="opacity-70">
-              ID: {generatedImage?.id || '11986660500'}
-          </div>
-      </div>
+    {/* --- OVERLAYS --- */}
+
+    {/* Gallery Modal */}
+    {showGallery && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center animate-fade-in p-4 md:p-8">
+            <div className="w-full max-w-6xl h-[80vh] bg-slate-900 rounded-2xl border border-white/10 flex flex-col overflow-hidden shadow-2xl">
+                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-slate-800/30">
+                    <h3 className="text-xl font-bold text-white tracking-wide">ARCHIVE GALLERY <span className="text-slate-500 text-sm ml-2">({gallery.length} ITEMS)</span></h3>
+                    <button onClick={() => setShowGallery(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors">
+                        <svg className="w-6 h-6 text-slate-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6">
+                    {gallery.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50">
+                             <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                             <p className="font-mono uppercase tracking-widest">No Archives Found</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {gallery.map(img => (
+                                <div key={img.id} onClick={() => loadFromGallery(img)} className="group relative aspect-square rounded-xl overflow-hidden border border-white/5 hover:border-cyan-500/50 cursor-pointer transition-all">
+                                    <img src={`data:${img.mimeType};base64,${img.base64}`} alt="Gallery item" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3">
+                                        <p className="text-xs text-white line-clamp-1 font-mono mb-1">{img.prompt}</p>
+                                        <p className="text-[10px] text-slate-400">{new Date(img.timestamp).toLocaleTimeString()}</p>
+                                        <button 
+                                            onClick={(e) => deleteFromGallery(e, img.id)}
+                                            className="absolute top-2 right-2 p-1.5 bg-red-500/20 text-red-400 rounded hover:bg-red-500 hover:text-white transition-colors"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )}
+
+    {/* Download Confirmation Modal */}
+    {showDownloadConfirm && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in p-4">
+            <div className="bg-slate-900 border border-white/10 p-6 rounded-2xl max-w-sm w-full shadow-2xl text-center">
+                <div className="w-12 h-12 mx-auto bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">Confirm Download</h3>
+                <p className="text-slate-400 text-sm mb-6">Save this synthesis to your local device?</p>
+                <div className="flex gap-3">
+                    <button onClick={() => setShowDownloadConfirm(false)} className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition-colors">Cancel</button>
+                    <button onClick={performDownload} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-blue-900/20 transition-colors">Save File</button>
+                </div>
+            </div>
+        </div>
+    )}
+
+    {/* Preset Name Modal */}
+    {showPresetSave && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in p-4">
+            <div className="bg-slate-900 border border-white/10 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
+                <h3 className="text-lg font-bold text-white mb-4">Save Configuration</h3>
+                <input 
+                    type="text" 
+                    value={newPresetName}
+                    onChange={(e) => setNewPresetName(e.target.value)}
+                    placeholder="Enter preset name..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-cyan-500 mb-4"
+                    autoFocus
+                />
+                <div className="flex gap-3">
+                    <button onClick={() => setShowPresetSave(false)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm">Cancel</button>
+                    <button onClick={savePreset} className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-medium">Save Preset</button>
+                </div>
+            </div>
+        </div>
+    )}
+
+    {/* SYSTEM STATUS FOOTER (App View) */}
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest select-none">
+        <div className="flex items-center gap-4">
+            {isLoading ? (
+                 <span className="flex items-center gap-2 text-amber-500 transition-colors duration-300">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    PROCESSING DATA
+                </span>
+            ) : (
+                <span className="flex items-center gap-2 transition-colors duration-300">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    SYSTEM READY
+                </span>
+            )}
+
+            <span className="hidden md:inline text-slate-700">|</span>
+            <span className="hidden md:inline">MODEL: {options.model === AIModel.FLASH ? 'UMBRAX-IRIS_5.1' : 'UMBRX-GEN_2.5'}</span>
+            <span className="hidden md:inline text-slate-700">|</span>
+             <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
+                F&Q // SYNTHESIS CORE
+            </a>
+        </div>
+        
+        <div className="flex items-center gap-4 opacity-70">
+             {/* Terminal moved here, simplified */}
+            <button onClick={toggleConsole} className="hover:text-cyan-400 flex items-center gap-1 transition-colors opacity-50 hover:opacity-100" title="Open System Console">
+                {">_"}
+            </button>
+            <span className="text-slate-700">|</span>
+            <span>ID: {initialId || defaultId}</span>
+        </div>
+    </div>
+
+    {/* SYSTEM CONSOLE OVERLAY (Fixed Bottom Drawer) */}
+    {isConsoleOpen && (
+        <div className="fixed bottom-0 left-0 right-0 z-[100] bg-black/95 border-t border-cyan-500/30 font-mono text-xs shadow-[0_-10px_40px_rgba(0,0,0,0.8)] animate-fade-in-up flex flex-col" style={{ height: '300px' }}>
+            {/* Header */}
+            <div className="flex justify-between items-center px-4 py-1 bg-cyan-900/20 border-b border-cyan-500/20 select-none">
+                <span className="text-cyan-500 font-bold tracking-widest">UMBRAX_KERNEL_DEBUG_SHELL</span>
+                <button onClick={toggleConsole} className="text-cyan-500/50 hover:text-cyan-400">[CLOSE_CONNECTION]</button>
+            </div>
+            
+            {/* Logs Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin scrollbar-thumb-cyan-900 scrollbar-track-black">
+                {consoleLogs.map((log) => (
+                    <div key={log.id} className={`font-mono ${log.type === 'error' ? 'text-red-500' : log.type === 'warn' ? 'text-amber-500' : log.type === 'success' ? 'text-green-400' : log.type === 'system' ? 'text-cyan-600 font-bold' : 'text-slate-300'}`}>
+                        <span className="opacity-30 mr-2">[{log.timestamp}]</span>
+                        <span>{log.message}</span>
+                    </div>
+                ))}
+                <div ref={consoleEndRef}></div>
+            </div>
+
+            {/* Input Area */}
+            <div className="p-2 bg-black border-t border-white/10 flex items-center pb-2">
+                <span className="text-cyan-500 mr-2">{">"}</span>
+                <input 
+                    ref={consoleInputRef}
+                    type="text" 
+                    value={consoleInput}
+                    onChange={(e) => setConsoleInput(e.target.value)}
+                    onKeyDown={handleConsoleCommand}
+                    className="flex-1 bg-transparent border-none outline-none text-cyan-300 placeholder-cyan-900/50"
+                    placeholder="Enter system command..."
+                    autoComplete="off"
+                />
+            </div>
+        </div>
+    )}
     </>
   );
 };

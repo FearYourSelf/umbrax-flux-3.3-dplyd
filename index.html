@@ -130,6 +130,18 @@
         100% { transform: translate(0) }
       }
 
+      @keyframes implode {
+        0% { transform: scale(1); opacity: 1; filter: blur(0); }
+        50% { transform: scale(0.1); opacity: 0.8; filter: blur(5px); }
+        100% { transform: scale(0); opacity: 0; }
+      }
+
+      @keyframes shockwave {
+        0% { transform: scale(0); opacity: 1; }
+        50% { opacity: 1; }
+        100% { transform: scale(4); opacity: 0; }
+      }
+
       /* Background Utilities */
       .bg-cyber-grid {
         background-size: 50px 50px;
@@ -169,6 +181,14 @@
       
       .animate-glitch {
         animation: glitch 0.2s linear infinite;
+      }
+      
+      .animate-implode {
+        animation: implode 0.4s cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+      }
+
+      .animate-shockwave {
+        animation: shockwave 0.8s ease-out forwards;
       }
 
       /* Utility for inputs to remove autocomplete background */

@@ -73,16 +73,40 @@ export const generateImage = async (
 
   const apiRatio = getValidApiRatio(options.aspectRatio);
 
-  const imageConfig: any = {
-    aspectRatio: apiRatio,
-  };
-
-  // Only add imageSize if using the Pro model
-  if (options.model === AIModel.PRO) {
-    imageConfig.imageSize = options.resolution;
-  }
-
   try {
+    // --- IMAGEN MODEL PATH ---
+    if (options.model === AIModel.IMAGEN) {
+       if (inputImage) {
+           throw new Error("The selected Imagen model does not support Image-to-Image generation. Please use a Gemini model (UMBRAX-Iris 5.1).");
+       }
+
+       const response = await ai.models.generateImages({
+           model: options.model,
+           prompt: enhancedPrompt,
+           config: {
+               numberOfImages: 1,
+               aspectRatio: apiRatio,
+               outputMimeType: 'image/png'
+           }
+       });
+
+       if (response.generatedImages && response.generatedImages.length > 0) {
+           return {
+               id: Date.now().toString(),
+               base64: response.generatedImages[0].image.imageBytes,
+               mimeType: 'image/png',
+               prompt: prompt,
+               timestamp: Date.now(),
+           };
+       }
+       throw new Error("No image data received from Imagen model.");
+    }
+
+    // --- GEMINI MODEL PATH ---
+    const imageConfig: any = {
+      aspectRatio: apiRatio,
+    };
+
     let contents: any = enhancedPrompt;
     
     // Handle Image-to-Image (Multimodal)
@@ -135,8 +159,14 @@ export const generateImage = async (
     
     throw new Error("No image data received from the model.");
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating image:", error);
+    
+    // Check for specific API errors to provide better messages
+    if (error.message && (error.message.includes("429") || error.message.includes("Quota") || error.message.includes("RESOURCE_EXHAUSTED"))) {
+        throw new Error("API QUOTA EXHAUSTED (429). The current tier cannot process this request.");
+    }
+    
     throw error;
   }
 };
@@ -149,14 +179,15 @@ export const editImage = async (
   const ai = getClient();
 
   try {
+    if (options.model === AIModel.IMAGEN) {
+        throw new Error("Edit/Inpainting functions are currently optimized for UMBRAX (Gemini) models only.");
+    }
+
     // Configure based on selected model
     const apiRatio = getValidApiRatio(options.aspectRatio);
     const imageConfig: any = {
         aspectRatio: apiRatio
     };
-    if (options.model === AIModel.PRO) {
-        imageConfig.imageSize = options.resolution;
-    }
 
     const response = await ai.models.generateContent({
       model: options.model, 
@@ -203,8 +234,11 @@ export const editImage = async (
     }
 
     throw new Error("No edited image data received from the model.");
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error editing image:", error);
+    if (error.message && (error.message.includes("429") || error.message.includes("Quota") || error.message.includes("RESOURCE_EXHAUSTED"))) {
+        throw new Error("API QUOTA EXHAUSTED (429). Edit request denied.");
+    }
     throw error;
   }
 };
