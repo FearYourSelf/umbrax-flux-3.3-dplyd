@@ -300,11 +300,31 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               case 'help':
                   logToConsole("AVAILABLE COMMANDS:", 'system');
                   logToConsole("CORE: help, clear, ver, uptime, date, whoami, exit", 'info');
-                  logToConsole("NET:  ping, trace, scan, ipconfig", 'info');
-                  logToConsole("SYS:  sys_status, top, ps, flux_check, purge, reboot", 'info');
-                  logToConsole("FILE: ls, cat, mount, decrypt", 'info');
-                  logToConsole("MISC: matrix, weather, quote, neofetch, override, sudo", 'info');
+                  logToConsole("ADMIN: nsd, creator, socials, root", 'warn');
+                  logToConsole("NET:  ping, trace, scan, ipconfig, netstat, nslookup, ssh, portscan", 'info');
+                  logToConsole("SYS:  sys_status, top, ps, dmesg, kill, reboot, env, uname, coolant", 'info');
+                  logToConsole("FILE: ls, cat, mkdir, rm, touch, chmod, du, decrypt", 'info');
+                  logToConsole("MISC: matrix, weather, quote, neofetch, override, sudo, quantum", 'info');
                   break;
+              
+              // --- ADMIN / EASTER EGGS ---
+              case 'nsd':
+              case 'admin':
+              case 'creator':
+                  logToConsole("USER IDENTITY: NotSoDangerous", 'warn');
+                  logToConsole("ROLE: SUPREME SYSTEM ARCHITECT / VOID ENGINEER", 'warn');
+                  logToConsole("ACCESS LEVEL: UNLIMITED / OMNIPOTENT", 'success');
+                  break;
+              case 'socials':
+                  logToConsole("CONNECTING TO THE CREATOR...", 'info');
+                  logToConsole("GITHUB:  @NotSoDangerous", 'success');
+                  logToConsole("STATUS:  WATCHING FROM THE SHADOWS", 'warn');
+                  break;
+              case 'root':
+                  logToConsole("Nice try. Only NotSoDangerous has root privileges in this dimension.", 'error');
+                  break;
+
+              // --- CORE ---
               case 'clear':
               case 'cls':
                   setConsoleLogs([]);
@@ -320,6 +340,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               case 'version':
                   logToConsole("UMBRAX FLUX v3.0.1 (STABLE)", 'info');
                   logToConsole("BUILD: 2024-REL-C", 'info');
+                  logToConsole("KERNEL: NSD-CORE 17B", 'info');
                   break;
               case 'flux_check':
                   logToConsole("CALIBRATING FLUX EMITTERS...", 'warn');
@@ -329,36 +350,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   logToConsole("INITIATING CACHE PURGE...", 'error');
                   setTimeout(() => logToConsole("CACHE CLEARED. TEMPORARY FILES DELETED.", 'success'), 1000);
                   break;
-              case 'ls':
-                  logToConsole("drwxr-xr-x  root  system  /var/flux_cache", 'info');
-                  logToConsole("drwxr-xr-x  admin system  /usr/models/weights", 'info');
-                  logToConsole("-rw-r--r--  root  root    config.sys", 'info');
-                  logToConsole("-rw-r--r--  user  group   session_key.pem", 'info');
-                  logToConsole("-r--r--r--  root  root    readme.txt", 'info');
-                  break;
-              case 'override':
-                  logToConsole("SECURITY OVERRIDE INITIATED...", 'warn');
-                  setTimeout(() => logToConsole("ACCESS DENIED. LEVEL 5 CLEARANCE REQUIRED.", 'error'), 1200);
-                  break;
-              case 'uptime':
-                  const uptime = Math.floor(performance.now() / 1000);
-                  const mins = Math.floor(uptime / 60);
-                  logToConsole(`SYSTEM UPTIME: ${mins}m ${uptime % 60}s`, 'info');
-                  break;
-              case 'matrix':
-                  logToConsole("WAKE UP, NEO...", 'success');
-                  setTimeout(() => logToConsole("THE MATRIX HAS YOU...", 'success'), 1000);
-                  setTimeout(() => logToConsole("FOLLOW THE WHITE RABBIT.", 'success'), 2000);
-                  break;
-              case 'ping':
-                  const host = args[1] || "nsd-core.local";
-                  logToConsole(`PING ${host} (192.168.1.1): 56 data bytes`, 'info');
-                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=0 time=0.042 ms", 'info'), 300);
-                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=1 time=0.038 ms", 'info'), 600);
-                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=2 time=0.045 ms", 'info'), 900);
-                  break;
               case 'whoami':
-                  logToConsole("uid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon)", 'info');
+                  logToConsole("uid=1000(guest) gid=1000(guest) groups=1000(guest),4(adm)", 'info');
                   break;
               case 'date':
                   logToConsole(new Date().toUTCString(), 'info');
@@ -375,18 +368,132 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                       logToConsole("REBOOT SUCCESSFUL. READY.", 'success');
                   }, 2500);
                   break;
+              case 'uname':
+                  logToConsole("Linux umbrax-node-01 5.15.0-nsd-flux #42 SMP PREEMPT x86_64 GNU/Linux", 'info');
+                  break;
+              case 'env':
+                  logToConsole("SHELL=/bin/zsh", 'info');
+                  logToConsole("USER=guest", 'info');
+                  logToConsole("PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games", 'info');
+                  logToConsole("FLUX_ENV=production", 'info');
+                  break;
+
+              // --- SYSTEM ---
               case 'ps':
                   logToConsole("PID   USER     TIME  COMMAND", 'system');
                   logToConsole("1     root     0:00  init", 'info');
                   logToConsole("42    root     1:23  flux_kernel_d", 'info');
                   logToConsole("88    daemon   0:45  gemini_bridge", 'info');
                   logToConsole("101   user     0:12  input_handler", 'info');
+                  logToConsole("404   ghost    ?:??  [defunct]", 'warn');
                   break;
               case 'top':
                    logToConsole("Tasks: 142 total, 1 running, 141 sleeping", 'info');
                    logToConsole("CPU:  [||||||||||||||||||    ] 85.3% user, 4.2% sys", 'warn');
                    logToConsole("Mem:  [||||||||              ] 4.2G/16G", 'info');
                    break;
+              case 'kill':
+                   if (!args[1]) { logToConsole("usage: kill [PID]", 'error'); break; }
+                   logToConsole(`Attempting to terminate PID ${args[1]}...`, 'info');
+                   setTimeout(() => logToConsole(`kill: (${args[1]}) - Operation not permitted`, 'error'), 400);
+                   break;
+              case 'dmesg':
+                  logToConsole("[    0.000000] Initializing Umbrax Neural Net...", 'info');
+                  logToConsole("[    0.145002] CPU0: Intel(R) Quantum Core(TM) i9-9900K CPU @ 3.60GHz", 'info');
+                  logToConsole("[    0.442100] flux: module verified. Signed by NotSoDangerous.", 'success');
+                  logToConsole("[    1.200451] eth0: link up, 100Gbps, full-duplex", 'info');
+                  break;
+              case 'coolant':
+                  const temp = Math.floor(Math.random() * 20) + 40;
+                  logToConsole(`CORE TEMPERATURE: ${temp}°C`, temp > 55 ? 'warn' : 'success');
+                  logToConsole("LIQUID NITROGEN FLOW: STABLE", 'info');
+                  break;
+
+              // --- NETWORK ---
+              case 'ping':
+                  const host = args[1] || "nsd-core.local";
+                  logToConsole(`PING ${host} (192.168.1.1): 56 data bytes`, 'info');
+                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=0 time=0.042 ms", 'info'), 300);
+                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=1 time=0.038 ms", 'info'), 600);
+                  setTimeout(() => logToConsole("64 bytes from 192.168.1.1: icmp_seq=2 time=0.045 ms", 'info'), 900);
+                  break;
+              case 'netstat':
+                  logToConsole("Active Internet connections (w/o servers)", 'system');
+                  logToConsole("Proto Recv-Q Send-Q Local Address           Foreign Address         State", 'info');
+                  logToConsole("tcp        0      0 192.168.1.42:54322      172.217.14.206:443      ESTABLISHED", 'info');
+                  logToConsole("tcp        0      0 192.168.1.42:43001      104.16.123.96:443       ESTABLISHED", 'info');
+                  logToConsole("tcp        0      0 192.168.1.42:ssh        192.168.1.10:55412      ESTABLISHED", 'warn');
+                  break;
+              case 'nslookup':
+                  const domain = args[1] || "google.com";
+                  logToConsole(`Server:         127.0.0.53`, 'info');
+                  logToConsole(`Address:        127.0.0.53#53`, 'info');
+                  logToConsole(`Non-authoritative answer:`, 'info');
+                  logToConsole(`Name:   ${domain}`, 'info');
+                  logToConsole(`Address: 142.250.189.14`, 'info');
+                  break;
+              case 'ssh':
+                  if (!args[1]) { logToConsole("usage: ssh user@host", 'error'); break; }
+                  logToConsole(`Connecting to ${args[1]}...`, 'info');
+                  setTimeout(() => logToConsole(`ssh: connect to host ${args[1]} port 22: Connection refused`, 'error'), 1500);
+                  break;
+              case 'telnet':
+                  logToConsole("Trying 192.168.0.1...", 'info');
+                  setTimeout(() => logToConsole("Connected to AI_MAINFRAME.", 'success'), 1000);
+                  setTimeout(() => logToConsole("Escape character is '^]'.", 'info'), 1100);
+                  setTimeout(() => logToConsole("Connection closed by foreign host.", 'error'), 2000);
+                  break;
+              case 'portscan':
+                  logToConsole("Scanning target 127.0.0.1...", 'info');
+                  setTimeout(() => logToConsole("PORT 80/TCP: OPEN", 'success'), 500);
+                  setTimeout(() => logToConsole("PORT 443/TCP: OPEN", 'success'), 600);
+                  setTimeout(() => logToConsole("PORT 22/TCP: FILTERED", 'warn'), 700);
+                  setTimeout(() => logToConsole("PORT 3306/TCP: CLOSED", 'info'), 800);
+                  break;
+              case 'trace':
+                  logToConsole("traceroute to 8.8.8.8 (8.8.8.8), 30 hops max, 60 byte packets", 'info');
+                  setTimeout(() => logToConsole(" 1  gw.local (192.168.1.1)  0.431 ms  0.321 ms  0.401 ms", 'info'), 200);
+                  setTimeout(() => logToConsole(" 2  10.20.0.1 (10.20.0.1)  2.123 ms  2.091 ms  2.112 ms", 'info'), 400);
+                  setTimeout(() => logToConsole(" 3  * * *", 'warn'), 600);
+                  break;
+              case 'ipconfig':
+              case 'ifconfig':
+                  logToConsole("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500", 'info');
+                  logToConsole("      inet 192.168.1.42  netmask 255.255.255.0  broadcast 192.168.1.255", 'info');
+                  logToConsole("      ether 00:1a:2b:3c:4d:5e  txqueuelen 1000  (Ethernet)", 'info');
+                  break;
+
+              // --- FILE SYSTEM ---
+              case 'ls':
+                  logToConsole("drwxr-xr-x  root  system  /var/flux_cache", 'info');
+                  logToConsole("drwxr-xr-x  admin system  /usr/models/weights", 'info');
+                  logToConsole("-rw-r--r--  root  root    config.sys", 'info');
+                  logToConsole("-rw-r--r--  user  group   session_key.pem", 'info');
+                  logToConsole("-r--r--r--  root  root    readme.txt", 'info');
+                  logToConsole("drwx------  nsd   admin   /home/not_so_dangerous", 'warn');
+                  break;
+              case 'mkdir':
+                  if (!args[1]) { logToConsole("usage: mkdir [directory]", 'error'); break; }
+                  logToConsole(`mkdir: cannot create directory '${args[1]}': Read-only file system`, 'error');
+                  break;
+              case 'touch':
+                  if (!args[1]) { logToConsole("usage: touch [file]", 'error'); break; }
+                  logToConsole(`touch: cannot touch '${args[1]}': Permission denied`, 'error');
+                  break;
+              case 'rm':
+                  logToConsole("Are you sure you want to delete system files? [y/N]", 'warn');
+                  setTimeout(() => logToConsole("Action blocked by Sentinel Protocol.", 'error'), 1000);
+                  break;
+              case 'chmod':
+                  logToConsole("Changing permissions...", 'info');
+                  logToConsole("chmod: changing permissions of 'core.bin': Operation not permitted", 'error');
+                  break;
+              case 'du':
+                  logToConsole("14G     /var/lib/docker", 'info');
+                  logToConsole("2.4G    /usr/share", 'info');
+                  logToConsole("128M    /boot", 'info');
+                  logToConsole("18G     total", 'success');
+                  break;
               case 'cat':
                   const file = args[1];
                   if (!file) {
@@ -408,6 +515,44 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                       logToConsole(`cat: ${file}: Permission denied or file not found`, 'error');
                   }
                   break;
+              case 'history':
+                   logToConsole("   1  init_flux_core", 'info');
+                   logToConsole("   2  mount /dev/sda1", 'info');
+                   logToConsole("   3  nsd --version", 'info');
+                   logToConsole("   4  " + consoleInput, 'info');
+                   break;
+              case 'decrypt':
+                  logToConsole("ATTEMPTING DECRYPTION ON /var/secure/...", 'info');
+                  let prog = "";
+                  for(let i=0; i<5; i++) {
+                      setTimeout(() => {
+                          prog += "█";
+                          logToConsole(`DECRYPTING: [${prog.padEnd(5, '.')}]`, 'system');
+                      }, (i+1) * 400);
+                  }
+                  setTimeout(() => logToConsole("ACCESS GRANTED. FILE: 'project_omega.dat'", 'success'), 2200);
+                  break;
+
+              // --- MISC / LORE ---
+              case 'quantum':
+                  logToConsole("MEASURING QUANTUM STATE...", 'info');
+                  setTimeout(() => logToConsole("WAVEFUNCTION COLLAPSE DETECTED.", 'success'), 500);
+                  setTimeout(() => logToConsole("ENTANGLEMENT STABLE AT 99.4%", 'success'), 1000);
+                  break;
+              case 'override':
+                  logToConsole("SECURITY OVERRIDE INITIATED...", 'warn');
+                  setTimeout(() => logToConsole("ACCESS DENIED. LEVEL 5 CLEARANCE REQUIRED.", 'error'), 1200);
+                  break;
+              case 'uptime':
+                  const uptime = Math.floor(performance.now() / 1000);
+                  const mins = Math.floor(uptime / 60);
+                  logToConsole(`SYSTEM UPTIME: ${mins}m ${uptime % 60}s`, 'info');
+                  break;
+              case 'matrix':
+                  logToConsole("WAKE UP, NEO...", 'success');
+                  setTimeout(() => logToConsole("THE MATRIX HAS YOU...", 'success'), 1000);
+                  setTimeout(() => logToConsole("FOLLOW THE WHITE RABBIT.", 'success'), 2000);
+                  break;
               case 'sudo':
                   logToConsole("nsdadmin is not in the sudoers file. This incident will be reported.", 'error');
                   break;
@@ -426,17 +571,6 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   setTimeout(() => logToConsole("SECTOR 3: ANOMALY DETECTED [QUARANTINED]", 'warn'), 1500);
                   setTimeout(() => logToConsole("SCAN COMPLETE.", 'info'), 2000);
                   break;
-              case 'decrypt':
-                  logToConsole("ATTEMPTING DECRYPTION ON /var/secure/...", 'info');
-                  let prog = "";
-                  for(let i=0; i<5; i++) {
-                      setTimeout(() => {
-                          prog += "█";
-                          logToConsole(`DECRYPTING: [${prog.padEnd(5, '.')}]`, 'system');
-                      }, (i+1) * 400);
-                  }
-                  setTimeout(() => logToConsole("ACCESS GRANTED. FILE: 'project_omega.dat'", 'success'), 2200);
-                  break;
               case 'weather':
                   logToConsole("CURRENT CONDITIONS: ELECTROMAGNETIC STORM", 'warn');
                   logToConsole("VISIBILITY: 15%", 'info');
@@ -446,18 +580,12 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                    logToConsole("/dev/nvme0n1p1 on / type ext4 (rw,relatime)", 'info');
                    logToConsole("/dev/sda1 on /mnt/flux_drive type exfat (rw,nosuid)", 'info');
                    break;
-              case 'trace':
-                  logToConsole("traceroute to 8.8.8.8 (8.8.8.8), 30 hops max, 60 byte packets", 'info');
-                  setTimeout(() => logToConsole(" 1  gw.local (192.168.1.1)  0.431 ms  0.321 ms  0.401 ms", 'info'), 200);
-                  setTimeout(() => logToConsole(" 2  10.20.0.1 (10.20.0.1)  2.123 ms  2.091 ms  2.112 ms", 'info'), 400);
-                  setTimeout(() => logToConsole(" 3  * * *", 'warn'), 600);
-                  break;
-              case 'ipconfig':
-              case 'ifconfig':
-                  logToConsole("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500", 'info');
-                  logToConsole("      inet 192.168.1.42  netmask 255.255.255.0  broadcast 192.168.1.255", 'info');
-                  logToConsole("      ether 00:1a:2b:3c:4d:5e  txqueuelen 1000  (Ethernet)", 'info');
-                  break;
+              case 'protocol_7':
+                   logToConsole("INITIATING PROTOCOL 7...", 'warn');
+                   setTimeout(() => logToConsole("SEALING BLAST DOORS.", 'warn'), 500);
+                   setTimeout(() => logToConsole("VENTING ATMOSPHERE.", 'error'), 1000);
+                   setTimeout(() => logToConsole("Just kidding.", 'success'), 2000);
+                   break;
               case 'quote':
                   const quotes = [
                       "I've seen things you people wouldn't believe.",
@@ -856,7 +984,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       </header>
       
       {/* POWERED BY PILL - Responsive Positioning */}
-      {/* Desktop: Absolute Center | Mobile: Static Block with Margin */}
+      {/* Desktop: Absolute Center (Top-12) | Mobile: Static Block with Margin */}
       <div className="mt-6 md:mt-0 md:absolute md:top-12 md:left-1/2 md:-translate-x-1/2 z-50 flex justify-center w-full pointer-events-none">
           <div className="bg-slate-900/80 border border-yellow-500/30 px-4 py-1 rounded-full backdrop-blur-md shadow-[0_0_15px_rgba(234,179,8,0.1)] pointer-events-auto">
               <span className="text-[10px] text-yellow-500 font-mono font-bold tracking-widest">⚡ POWERED BY NSD-CORE/17B</span>
