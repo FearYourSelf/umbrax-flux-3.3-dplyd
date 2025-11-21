@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 
 interface IntroProps {
@@ -26,19 +27,19 @@ const Intro: React.FC<IntroProps> = ({ onComplete }) => {
 
       <div className={`transition-all duration-1000 ease-out transform ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'} flex flex-col items-center`}>
         
-        {/* Sci-Fi Flux Core Icon */}
-        <div className="relative mb-12">
-           {/* Outer rotating ring */}
-           <div className="w-32 h-32 rounded-full border border-cyan-500/20 border-t-cyan-400 animate-[spin_8s_linear_infinite] shadow-[0_0_30px_rgba(6,182,212,0.1)]"></div>
+        {/* Sci-Fi Flux Core Icon - Seamless Version */}
+        <div className="relative mb-12 w-32 h-32 flex items-center justify-center">
+           {/* Outer rotating ring - Linear seamless */}
+           <div className="absolute inset-0 rounded-full border border-cyan-500/20 border-t-cyan-400 animate-spin-slow-linear shadow-[0_0_30px_rgba(6,182,212,0.1)]"></div>
            
-           {/* Inner rotating ring (reverse) */}
-           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full border border-blue-500/30 border-b-blue-400 animate-[spin_5s_linear_infinite_reverse]"></div>
+           {/* Inner rotating ring - Linear seamless reverse */}
+           <div className="absolute inset-4 rounded-full border border-blue-500/30 border-b-blue-400 animate-spin-reverse-linear"></div>
            
-           {/* Core pulse */}
-           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-cyan-500/10 rounded-full animate-pulse shadow-[0_0_40px_cyan]"></div>
+           {/* Core pulse - Sine wave breathing */}
+           <div className="absolute w-12 h-12 bg-cyan-500/10 rounded-full animate-breathe shadow-[0_0_40px_cyan]"></div>
            
            {/* Center solid */}
-           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_20px_white]"></div>
+           <div className="absolute w-2 h-2 bg-white rounded-full shadow-[0_0_20px_white]"></div>
            
            {/* Orbital particle */}
            <div className="absolute inset-0 animate-[spin_3s_linear_infinite]">

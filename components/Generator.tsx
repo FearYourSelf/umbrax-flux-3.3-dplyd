@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   AspectRatio, 
   ImageResolution, 
@@ -26,6 +27,76 @@ interface LogEntry {
     message: string;
 }
 
+// --- COMPONENT: TILT PANEL (3D Holographic Effect) ---
+const TiltPanel: React.FC<{ children: React.ReactNode, className?: string }> = ({ children, className = "" }) => {
+    const ref = useRef<HTMLDivElement>(null);
+    const [transform, setTransform] = useState("perspective(1000px) rotateX(0deg) rotateY(0deg)");
+    
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!ref.current) return;
+        const rect = ref.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        
+        // Calculate rotation (reduced intensity from 3 to 1 degree)
+        const rotateX = ((y - centerY) / centerY) * -1;
+        const rotateY = ((x - centerX) / centerX) * 1;
+        
+        setTransform(`perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.01)`);
+    };
+
+    const handleMouseLeave = () => {
+        setTransform("perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1)");
+    };
+
+    return (
+        <div 
+            ref={ref}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            className={`transition-transform duration-200 ease-out ${className}`}
+            style={{ transform }}
+        >
+            {children}
+        </div>
+    );
+};
+
+// --- COMPONENT: MAGNETIC BUTTON (Pulls to cursor) ---
+const MagneticButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ children, className, ...props }) => {
+    const btnRef = useRef<HTMLButtonElement>(null);
+    const [pos, setPos] = useState({ x: 0, y: 0 });
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!btnRef.current) return;
+        const rect = btnRef.current.getBoundingClientRect();
+        const x = e.clientX - (rect.left + rect.width / 2);
+        const y = e.clientY - (rect.top + rect.height / 2);
+        // Move button 20% of distance to cursor
+        setPos({ x: x * 0.2, y: y * 0.2 });
+    };
+
+    const handleMouseLeave = () => {
+        setPos({ x: 0, y: 0 });
+    };
+
+    return (
+        <button 
+            ref={btnRef}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            className={`transition-transform duration-200 ease-out ${className}`}
+            style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+            {...props}
+        >
+            {children}
+        </button>
+    );
+};
+
+
 const THEMATIC_ERRORS = [
     "NEURAL LINK SEVERED: DATA PACKET LOSS",
     "FLUX CORE DIVERGENCE DETECTED",
@@ -35,6 +106,8 @@ const THEMATIC_ERRORS = [
     "RENDER PIPELINE DESYNCHRONIZATION",
     "AI MODEL HALLUCINATION THRESHOLD EXCEEDED"
 ];
+
+type ConsoleSize = 'small' | 'medium' | 'full';
 
 const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const [prompt, setPrompt] = useState('');
@@ -112,6 +185,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   // Console State
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [consoleSize, setConsoleSize] = useState<ConsoleSize>('small');
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [consoleInput, setConsoleInput] = useState('');
   const consoleEndRef = useRef<HTMLDivElement>(null);
@@ -161,6 +235,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   const toggleConsole = () => {
       setIsConsoleOpen(!isConsoleOpen);
+      // Reset to small when opening
+      if (!isConsoleOpen) setConsoleSize('small');
   };
 
   // Initialize System Log
@@ -442,6 +518,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       // Check if it's a quota error to show a specific thematic message in UI
       if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429") || realErrorMessage.includes("RESOURCE_EXHAUSTED")) {
           setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
+          if (realErrorMessage.includes("limit: 0")) {
+             logToConsole("ADVISORY: FREE TIER LIMIT FOR THIS MODEL IS 0. ENABLE BILLING IN GOOGLE CLOUD CONSOLE TO UNLOCK QUOTA.", 'warn');
+          }
       } else {
           // Show a random thematic error for other issues
           const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
@@ -723,6 +802,119 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       }
   };
 
+  const getConsoleHeight = () => {
+      switch(consoleSize) {
+          case 'small': return '300px';
+          case 'medium': return '50vh';
+          case 'full': return '100vh';
+          default: return '300px';
+      }
+  };
+
+  const footerContent = (
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest select-none">
+        <div className="flex items-center gap-4">
+            {isLoading ? (
+                 <span className="flex items-center gap-2 text-amber-500 transition-colors duration-300">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    PROCESSING DATA
+                </span>
+            ) : (
+                <span className="flex items-center gap-2 transition-colors duration-300">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    SYSTEM READY
+                </span>
+            )}
+
+            <span className="hidden md:inline text-slate-700">|</span>
+            <span className="hidden md:inline">MODEL: {getModelDisplayName(options.model)}</span>
+            <span className="hidden md:inline text-slate-700">|</span>
+             <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
+                F&Q // SYNTHESIS CORE
+            </a>
+        </div>
+        
+        <div className="flex items-center gap-4 opacity-70">
+            <span>ID: {initialId || defaultId}</span>
+            <span className="text-slate-700">|</span>
+             {/* Terminal moved here, simplified */}
+            <button onClick={toggleConsole} className="hover:text-cyan-400 flex items-center gap-1 transition-colors opacity-50 hover:opacity-100" title="Open System Console">
+                {">_"}
+            </button>
+        </div>
+    </div>
+  );
+
+  const consoleContent = isConsoleOpen ? (
+    <div 
+        className="fixed bottom-0 left-0 right-0 z-[100] bg-black/95 border-t border-cyan-500/30 font-mono text-xs shadow-[0_-10px_40px_rgba(0,0,0,0.8)] animate-fade-in-up flex flex-col transition-all duration-300" 
+        style={{ height: getConsoleHeight() }}
+    >
+        {/* Header */}
+        <div className="flex justify-between items-center px-4 py-1 bg-cyan-900/20 border-b border-cyan-500/20 select-none">
+            <span className="text-cyan-500 font-bold tracking-widest">UMBRAX_KERNEL_DEBUG_SHELL</span>
+            <div className="flex items-center gap-2">
+                {/* Size Controls */}
+                <button 
+                    onClick={() => setConsoleSize('small')} 
+                    className={`p-1 hover:bg-cyan-900/40 rounded ${consoleSize === 'small' ? 'text-white' : 'text-cyan-500/50'}`}
+                    title="Minimize Height"
+                >
+                    _
+                </button>
+                <button 
+                    onClick={() => setConsoleSize('medium')} 
+                    className={`p-1 hover:bg-cyan-900/40 rounded ${consoleSize === 'medium' ? 'text-white' : 'text-cyan-500/50'}`}
+                    title="Medium Height"
+                >
+                    ▢
+                </button>
+                <button 
+                    onClick={() => setConsoleSize('full')} 
+                    className={`p-1 hover:bg-cyan-900/40 rounded ${consoleSize === 'full' ? 'text-white' : 'text-cyan-500/50'}`}
+                    title="Full Screen"
+                >
+                    ⤡
+                </button>
+                <span className="text-cyan-500/20">|</span>
+                <button onClick={toggleConsole} className="text-cyan-500/50 hover:text-cyan-400">[CLOSE]</button>
+            </div>
+        </div>
+        
+        {/* Logs Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin scrollbar-thumb-cyan-900 scrollbar-track-black">
+            {consoleLogs.map((log) => (
+                <div key={log.id} className={`font-mono break-words ${log.type === 'error' ? 'text-red-500' : log.type === 'warn' ? 'text-amber-500' : log.type === 'success' ? 'text-green-400' : log.type === 'system' ? 'text-cyan-600 font-bold' : 'text-slate-300'}`}>
+                    <span className="opacity-30 mr-2 select-none">[{log.timestamp}]</span>
+                    <span className="whitespace-pre-wrap">{log.message}</span>
+                </div>
+            ))}
+            <div ref={consoleEndRef}></div>
+        </div>
+
+        {/* Input Area */}
+        <div className="p-2 bg-black border-t border-white/10 flex items-center pb-2">
+            <span className="text-cyan-500 mr-2">{">"}</span>
+            <input 
+                ref={consoleInputRef}
+                type="text" 
+                value={consoleInput}
+                onChange={(e) => setConsoleInput(e.target.value)}
+                onKeyDown={handleConsoleCommand}
+                className="flex-1 bg-transparent border-none outline-none text-cyan-300 placeholder-cyan-900/50"
+                placeholder="Enter system command..."
+                autoComplete="off"
+            />
+        </div>
+    </div>
+  ) : null;
+
   return (
     <>
     <div className="w-full max-w-7xl mx-auto flex flex-col items-center pt-20 pb-24 px-4 md:px-6 lg:px-8 animate-fade-in-up">
@@ -732,13 +924,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         <div className="flex justify-center items-center w-full relative">
             {/* Desktop Gallery Button */}
             <div className="absolute left-0 hidden md:block">
-                <button 
+                <MagneticButton 
                     onClick={() => setShowGallery(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/40 border border-white/5 text-slate-300 hover:bg-slate-700 hover:text-white transition-all group hover:border-cyan-500/30"
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/40 border border-white/5 text-slate-300 hover:bg-slate-700 hover:text-white group hover:border-cyan-500/30"
                 >
                     <svg className="w-5 h-5 group-hover:text-cyan-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                     GALLERY
-                </button>
+                </MagneticButton>
             </div>
             <div>
                 <div className="inline-block px-4 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-mono tracking-widest mb-6 animate-fade-in shadow-[0_0_15px_rgba(245,158,11,0.1)]">
@@ -762,7 +954,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       </div>
 
       {/* Input Panel - Increased Z-Index to 50 to overlap Output Area properly */}
-      <div className="w-full glass-panel rounded-3xl p-5 md:p-8 mb-8 shadow-2xl shadow-blue-900/10 relative z-50 border border-white/10 hover:border-white/20 transition-colors">
+      <TiltPanel className="w-full glass-panel rounded-3xl p-5 md:p-8 mb-8 shadow-2xl shadow-blue-900/10 relative z-50 border border-white/10 hover:border-white/20">
         
         {/* Preset Toolbar */}
         <div className="flex justify-end items-center mb-4 gap-2">
@@ -941,16 +1133,16 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
           </div>
 
           <div className="lg:col-span-1 flex items-end">
-            <button 
+            <MagneticButton 
               onClick={handleGenerate}
               disabled={isLoading || !prompt.trim()}
               className={`w-full h-[42px] rounded-lg font-semibold tracking-wide transition-all duration-300 shadow-lg transform active:scale-95 ${isLoading ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(37,99,235,0.4)] text-white border border-blue-400/20'}`}
             >
               {isLoading ? 'PROCESSING...' : 'INITIATE'}
-            </button>
+            </MagneticButton>
           </div>
         </div>
-      </div>
+      </TiltPanel>
 
       {/* Error Message (THEMATIC) */}
       {error && (
@@ -976,7 +1168,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         )}
 
         {generatedImage && (
-          <div className={`relative w-full transition-all duration-700 ease-out ${isLoading ? 'opacity-40 grayscale pointer-events-none' : 'opacity-100'}`}>
+          <TiltPanel className={`relative w-full transition-all duration-700 ease-out ${isLoading ? 'opacity-40 grayscale pointer-events-none' : 'opacity-100'}`}>
              
              <div className="glass-panel p-1.5 md:p-2 rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col items-center bg-slate-900/40">
                
@@ -1155,22 +1347,22 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   </div>
                   
                   <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 justify-center md:justify-end">
-                      <button onClick={handleOutpaint} className="whitespace-nowrap px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm border border-white/10 transition-colors" title="Extend Borders (Outpaint)">
+                      <MagneticButton onClick={handleOutpaint} className="whitespace-nowrap px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm border border-white/10 transition-colors" title="Extend Borders (Outpaint)">
                           Extend
-                      </button>
-                      <button
+                      </MagneticButton>
+                      <MagneticButton
                           onClick={() => { setIsTargetMode(!isTargetMode); if (isTargetMode) setSelectionBox(null); }}
                           className={`whitespace-nowrap px-3 py-2 rounded-lg border text-sm transition-all ${isTargetMode ? 'bg-cyan-900/80 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]' : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'}`}
                       >
                           {isTargetMode ? 'Target Active' : 'Select Area'}
-                      </button>
-                      <button onClick={initiateDownload} className="whitespace-nowrap px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-900/30 transition-colors">
+                      </MagneticButton>
+                      <MagneticButton onClick={initiateDownload} className="whitespace-nowrap px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-900/30 transition-colors">
                           Download
-                      </button>
+                      </MagneticButton>
                   </div>
                </div>
              </div>
-          </div>
+          </TiltPanel>
         )}
 
         {/* Empty State / Intro Visuals could go here if needed */}
@@ -1238,8 +1430,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                 <h3 className="text-lg font-bold text-white mb-2">Confirm Download</h3>
                 <p className="text-slate-400 text-sm mb-6">Save this synthesis to your local device?</p>
                 <div className="flex gap-3">
-                    <button onClick={() => setShowDownloadConfirm(false)} className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition-colors">Cancel</button>
-                    <button onClick={performDownload} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-blue-900/20 transition-colors">Save File</button>
+                    <MagneticButton onClick={() => setShowDownloadConfirm(false)} className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition-colors">Cancel</MagneticButton>
+                    <MagneticButton onClick={performDownload} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-blue-900/20 transition-colors">Save File</MagneticButton>
                 </div>
             </div>
         </div>
@@ -1259,88 +1451,18 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                     autoFocus
                 />
                 <div className="flex gap-3">
-                    <button onClick={() => setShowPresetSave(false)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm">Cancel</button>
-                    <button onClick={savePreset} className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-medium">Save Preset</button>
+                    <MagneticButton onClick={() => setShowPresetSave(false)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm">Cancel</MagneticButton>
+                    <MagneticButton onClick={savePreset} className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-medium">Save Preset</MagneticButton>
                 </div>
             </div>
         </div>
     )}
 
-    {/* SYSTEM STATUS FOOTER (App View) */}
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest select-none">
-        <div className="flex items-center gap-4">
-            {isLoading ? (
-                 <span className="flex items-center gap-2 text-amber-500 transition-colors duration-300">
-                    <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                    </span>
-                    PROCESSING DATA
-                </span>
-            ) : (
-                <span className="flex items-center gap-2 transition-colors duration-300">
-                    <span className="relative flex h-2 w-2">
-                        <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                    </span>
-                    SYSTEM READY
-                </span>
-            )}
+    {/* SYSTEM STATUS FOOTER (App View) - PORTALED TO BODY TO FIX SMOOTH SCROLLING */}
+    {createPortal(footerContent, document.body)}
 
-            <span className="hidden md:inline text-slate-700">|</span>
-            <span className="hidden md:inline">MODEL: {getModelDisplayName(options.model)}</span>
-            <span className="hidden md:inline text-slate-700">|</span>
-             <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
-                F&Q // SYNTHESIS CORE
-            </a>
-        </div>
-        
-        <div className="flex items-center gap-4 opacity-70">
-            <span>ID: {initialId || defaultId}</span>
-            <span className="text-slate-700">|</span>
-             {/* Terminal moved here, simplified */}
-            <button onClick={toggleConsole} className="hover:text-cyan-400 flex items-center gap-1 transition-colors opacity-50 hover:opacity-100" title="Open System Console">
-                {">_"}
-            </button>
-        </div>
-    </div>
-
-    {/* SYSTEM CONSOLE OVERLAY (Fixed Bottom Drawer) */}
-    {isConsoleOpen && (
-        <div className="fixed bottom-0 left-0 right-0 z-[100] bg-black/95 border-t border-cyan-500/30 font-mono text-xs shadow-[0_-10px_40px_rgba(0,0,0,0.8)] animate-fade-in-up flex flex-col" style={{ height: '300px' }}>
-            {/* Header */}
-            <div className="flex justify-between items-center px-4 py-1 bg-cyan-900/20 border-b border-cyan-500/20 select-none">
-                <span className="text-cyan-500 font-bold tracking-widest">UMBRAX_KERNEL_DEBUG_SHELL</span>
-                <button onClick={toggleConsole} className="text-cyan-500/50 hover:text-cyan-400">[CLOSE_CONNECTION]</button>
-            </div>
-            
-            {/* Logs Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin scrollbar-thumb-cyan-900 scrollbar-track-black">
-                {consoleLogs.map((log) => (
-                    <div key={log.id} className={`font-mono ${log.type === 'error' ? 'text-red-500' : log.type === 'warn' ? 'text-amber-500' : log.type === 'success' ? 'text-green-400' : log.type === 'system' ? 'text-cyan-600 font-bold' : 'text-slate-300'}`}>
-                        <span className="opacity-30 mr-2">[{log.timestamp}]</span>
-                        <span className="whitespace-pre-wrap">{log.message}</span>
-                    </div>
-                ))}
-                <div ref={consoleEndRef}></div>
-            </div>
-
-            {/* Input Area */}
-            <div className="p-2 bg-black border-t border-white/10 flex items-center pb-2">
-                <span className="text-cyan-500 mr-2">{">"}</span>
-                <input 
-                    ref={consoleInputRef}
-                    type="text" 
-                    value={consoleInput}
-                    onChange={(e) => setConsoleInput(e.target.value)}
-                    onKeyDown={handleConsoleCommand}
-                    className="flex-1 bg-transparent border-none outline-none text-cyan-300 placeholder-cyan-900/50"
-                    placeholder="Enter system command..."
-                    autoComplete="off"
-                />
-            </div>
-        </div>
-    )}
+    {/* SYSTEM CONSOLE OVERLAY (Fixed Bottom Drawer) - PORTALED TO BODY */}
+    {isConsoleOpen && createPortal(consoleContent, document.body)}
     </>
   );
 };

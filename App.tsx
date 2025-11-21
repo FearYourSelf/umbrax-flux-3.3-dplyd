@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Intro from './components/Intro';
 import Generator from './components/Generator';
 
@@ -132,8 +132,99 @@ const App: React.FC = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState(false);
   
+  // Mouse Parallax State
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  
+  // Scroll State
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
   // Generate a random session ID on mount
   const [sessionId] = useState(() => Math.floor(10000000000 + Math.random() * 90000000000).toString());
+
+  // --- REACTIVITY 1: GLOBAL RIPPLE EFFECT ---
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+        const ripple = document.createElement('div');
+        ripple.classList.add('ripple');
+        ripple.style.left = `${e.clientX - 10}px`; // -10 for half radius
+        ripple.style.top = `${e.clientY - 10}px`;
+        ripple.style.width = '20px';
+        ripple.style.height = '20px';
+        document.body.appendChild(ripple);
+        
+        setTimeout(() => {
+            ripple.remove();
+        }, 600);
+    };
+    
+    const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault(); // Disable right click
+    };
+
+    window.addEventListener('click', handleClick);
+    window.addEventListener('contextmenu', handleContextMenu);
+    
+    return () => {
+        window.removeEventListener('click', handleClick);
+        window.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, []);
+
+  // --- REACTIVITY 2: INERTIAL SMOOTH SCROLL ---
+  useEffect(() => {
+    const body = document.body;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    let current = 0;
+    let target = 0;
+    let ease = 0.075; // Lower = smoother/heavier
+
+    // Set body height to container height for native scrollbar feeling (even if hidden)
+    const resizeObserver = new ResizeObserver(() => {
+        // Wrap in requestAnimationFrame to prevent "loop completed with undelivered notifications"
+        requestAnimationFrame(() => {
+            if (container) {
+                document.body.style.height = `${container.scrollHeight}px`;
+            }
+        });
+    });
+    resizeObserver.observe(container);
+
+    const onScroll = () => {
+       target = window.scrollY;
+    };
+    
+    window.addEventListener('scroll', onScroll);
+
+    const animateScroll = () => {
+       current += (target - current) * ease;
+       // Round to avoid sub-pixel jitter issues on some displays
+       // Apply transform
+       if (container) {
+           container.style.transform = `translateY(-${current}px)`;
+       }
+       requestAnimationFrame(animateScroll);
+    };
+    requestAnimationFrame(animateScroll);
+
+    return () => {
+        window.removeEventListener('scroll', onScroll);
+        resizeObserver.disconnect();
+        document.body.style.height = '';
+    };
+  }, [viewState]); // Re-run when state changes (content height changes)
+
+  // --- REACTIVITY 3: MOUSE PARALLAX ---
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+        const x = (e.clientX / window.innerWidth) * 2 - 1; // -1 to 1
+        const y = (e.clientY / window.innerHeight) * 2 - 1; // -1 to 1
+        setMousePos({ x, y });
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   const handleIntroComplete = () => {
     setViewState('BOOT');
@@ -160,25 +251,37 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#020617] text-white overflow-x-hidden relative selection:bg-cyan-500/30 selection:text-cyan-200">
-      
-      {/* GLOBAL DYNAMIC BACKGROUND - Persistent */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-         {/* Deep Space Gradient */}
-         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,_rgba(6,182,212,0.08),_rgba(2,6,23,1)_70%)]"></div>
+    <>
+    {/* Fixed background layer */}
+    <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden bg-[#020617]">
+         {/* Deep Space Gradient - Moves slowly opposite to mouse */}
+         <div 
+            className="absolute inset-[-5%] w-[110%] h-[110%] bg-[radial-gradient(circle_at_50%_50%,_rgba(6,182,212,0.08),_rgba(2,6,23,1)_70%)] transition-transform duration-100 ease-out"
+            style={{ transform: `translate(${mousePos.x * -10}px, ${mousePos.y * -10}px)` }}
+         ></div>
          
-         {/* Moving Grid */}
-         <div className="absolute inset-0 bg-cyber-grid opacity-30"></div>
+         {/* Moving Grid - Moves slightly with mouse */}
+         <div 
+            className="absolute inset-[-10%] w-[120%] h-[120%] bg-cyber-grid opacity-30 transition-transform duration-100 ease-out"
+            style={{ transform: `translate(${mousePos.x * 20}px, ${mousePos.y * 20}px) perspective(500px) rotateX(10deg)` }}
+         ></div>
          
-         {/* Floating Orbs */}
-         <div className="absolute top-[-10%] left-[-10%] w-[800px] h-[800px] bg-blue-900/10 rounded-full blur-[120px] animate-pulse"></div>
-         <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-cyan-900/10 rounded-full blur-[120px] animate-pulse delay-1000"></div>
+         {/* Floating Orbs - Independent Movement */}
+         <div 
+            className="absolute top-[-10%] left-[-10%] w-[800px] h-[800px] bg-blue-900/10 rounded-full blur-[120px] animate-pulse transition-transform duration-700 ease-out"
+            style={{ transform: `translate(${mousePos.x * -30}px, ${mousePos.y * -30}px)` }}
+         ></div>
+         <div 
+            className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-cyan-900/10 rounded-full blur-[120px] animate-pulse delay-1000 transition-transform duration-700 ease-out"
+            style={{ transform: `translate(${mousePos.x * -20}px, ${mousePos.y * -20}px)` }}
+         ></div>
          
          {/* Scanline Overlay */}
          <div className="scanline-overlay opacity-30"></div>
-      </div>
+    </div>
 
-      <div className="relative z-10 min-h-screen flex flex-col">
+    {/* Main Scrolling Container - Managed by JS for Smooth Inertia */}
+    <div ref={scrollContainerRef} className="fixed top-0 left-0 w-full z-10 min-h-screen flex flex-col will-change-transform">
         
         {/* VIEW CONTROLLER */}
         {viewState === 'INTRO' && (
@@ -190,20 +293,29 @@ const App: React.FC = () => {
         )}
 
         {viewState === 'LOGIN' && (
-          <div className="flex-1 flex items-center justify-center p-4 animate-fade-in">
+          <div className="flex-1 flex items-center justify-center p-4 animate-fade-in min-h-screen">
             <div className="max-w-md w-full glass-panel rounded-2xl p-8 md:p-10 text-center border border-white/10 shadow-[0_0_60px_rgba(0,0,0,0.5)] relative backdrop-blur-xl animate-warp-in">
               
-              {/* Flux Aperture Icon */}
-              <div className="w-24 h-24 mx-auto mb-8 relative flex items-center justify-center">
-                 <div className="absolute inset-0 border border-slate-600 rounded-full animate-[spin_12s_linear_infinite] opacity-60"></div>
-                 <div className="absolute w-16 h-16 border-2 border-cyan-500/30 rotate-45 animate-[spin_17s_linear_infinite_reverse]"></div>
-                 <div className="absolute w-14 h-14 border border-blue-500/40 rounded-full animate-breathe"></div>
-                 <div className="absolute w-3 h-3 bg-white rounded-full shadow-[0_0_25px_cyan] animate-[pulse_4s_ease-in-out_infinite]"></div>
-                 <div className="absolute inset-0 animate-[spin_5s_linear_infinite]">
-                    <div className="w-1.5 h-1.5 bg-cyan-300 rounded-full absolute top-1 left-1/2 -translate-x-1/2 shadow-[0_0_8px_cyan]"></div>
+              {/* NEW SEAMLESS FLUX APERTURE ICON */}
+              <div className="w-32 h-32 mx-auto mb-8 relative flex items-center justify-center">
+                 {/* Ring 1: Outer Slow - Linear for seamless loop */}
+                 <div className="absolute inset-0 border border-slate-600/60 border-t-slate-400 rounded-full animate-spin-slow-linear"></div>
+                 
+                 {/* Ring 2: Middle Reverse - Linear */}
+                 <div className="absolute inset-3 border border-cyan-500/30 border-b-cyan-400 rounded-full animate-spin-reverse-linear"></div>
+                 
+                 {/* Core: Stable Glow */}
+                 <div className="absolute w-16 h-16 bg-blue-500/10 rounded-full shadow-[0_0_30px_rgba(59,130,246,0.2)] animate-breathe"></div>
+                 
+                 {/* Center Point */}
+                 <div className="absolute w-2 h-2 bg-white rounded-full shadow-[0_0_20px_cyan]"></div>
+                 
+                 {/* Orbiting Particles */}
+                 <div className="absolute inset-0 animate-[spin_4s_linear_infinite]">
+                    <div className="absolute top-0 left-1/2 w-1 h-1 bg-cyan-300 rounded-full shadow-[0_0_5px_cyan]"></div>
                  </div>
-                 <div className="absolute inset-2 animate-[spin_7s_linear_infinite_reverse]">
-                    <div className="w-1 h-1 bg-blue-400 rounded-full absolute bottom-0 left-1/2 -translate-x-1/2 shadow-[0_0_5px_blue]"></div>
+                 <div className="absolute inset-6 animate-[spin_6s_linear_infinite_reverse]">
+                    <div className="absolute bottom-0 left-1/2 w-1.5 h-1.5 bg-blue-400 rounded-full shadow-[0_0_5px_blue]"></div>
                  </div>
               </div>
     
@@ -259,36 +371,37 @@ const App: React.FC = () => {
         )}
 
         {viewState === 'APP' && (
-          <div className="animate-fade-in">
+          <div className="animate-fade-in min-h-screen">
              <Generator initialId={sessionId} />
           </div>
         )}
-        
-        {/* Persistent Footer for Non-App Views */}
-        {viewState !== 'APP' && (
-             <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-2">
-                        <span className="relative flex h-2 w-2">
-                            <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                        </span>
-                        SYSTEM READY
-                    </span>
-                    <span className="hidden md:inline text-slate-700">|</span>
-                    <span className="hidden md:inline">MODEL: UMBRAX-IRIS_5.1</span>
-                    <span className="hidden md:inline text-slate-700">|</span>
-                    <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
-                        F&Q // SYNTHESIS CORE
-                    </a>
-                </div>
-                <div className="opacity-70">
-                    ID: {sessionId}
-                </div>
-            </div>
-        )}
-      </div>
     </div>
+        
+    {/* Persistent Footer for Non-App Views */}
+    {/* Must be fixed outside scroll container to stay on screen */}
+    {viewState !== 'APP' && (
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+            <div className="flex items-center gap-4">
+                <span className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    SYSTEM READY
+                </span>
+                <span className="hidden md:inline text-slate-700">|</span>
+                <span className="hidden md:inline">MODEL: UMBRAX-IRIS_5.1</span>
+                <span className="hidden md:inline text-slate-700">|</span>
+                <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
+                    F&Q // SYNTHESIS CORE
+                </a>
+            </div>
+            <div className="opacity-70">
+                ID: {sessionId}
+            </div>
+        </div>
+    )}
+    </>
   );
 };
 
