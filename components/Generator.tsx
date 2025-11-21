@@ -121,12 +121,23 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const imageWrapperRef = useRef<HTMLDivElement>(null);
 
   // Helper to log to console
-  const logToConsole = (message: string, type: LogEntry['type'] = 'info') => {
+  const logToConsole = (message: string | object, type: LogEntry['type'] = 'info') => {
+    let msgString = "";
+    if (typeof message === 'object') {
+        try {
+            msgString = JSON.stringify(message, null, 2);
+        } catch (e) {
+            msgString = String(message);
+        }
+    } else {
+        msgString = message;
+    }
+
     const newLog: LogEntry = {
         id: Date.now().toString() + Math.random(),
         timestamp: new Date().toLocaleTimeString([], { hour12: false }) + '.' + new Date().getMilliseconds().toString().padStart(3, '0'),
         type,
-        message
+        message: msgString
     };
     setConsoleLogs(prev => [...prev, newLog]);
   };
@@ -422,13 +433,14 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       if (inputImageBase64) {
         clearUploadedImage();
       }
-    } catch (err) {
-      const realErrorMessage = err instanceof Error ? err.message : "Unknown error";
-      // Log the REAL error to the console
+    } catch (err: any) {
+      const realErrorMessage = err.message || JSON.stringify(err);
+      
+      // Log the FULL error object to the console
       logToConsole(`CRITICAL ERROR: ${realErrorMessage}`, 'error');
       
-      // Check if it's a quota error to show a specific thematic message
-      if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
+      // Check if it's a quota error to show a specific thematic message in UI
+      if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429") || realErrorMessage.includes("RESOURCE_EXHAUSTED")) {
           setError("RESOURCE DEPLETED // INSUFFICIENT CREDITS");
       } else {
           // Show a random thematic error for other issues
@@ -449,8 +461,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         setSuggestions(sugs);
         setShowSuggestions(true);
         logToConsole("SUGGESTIONS RECEIVED", 'success');
-    } catch (e) {
-        const msg = e instanceof Error ? e.message : "Unknown";
+    } catch (e: any) {
+        const msg = e.message || String(e);
         logToConsole(`SUGGESTION FAILED: ${msg}`, 'error');
     } finally {
         setIsLoading(false);
@@ -478,8 +490,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       setSelectionBox(null);
       setIsTargetMode(false);
       logToConsole("EDIT COMPLETE", 'success');
-    } catch (err) {
-      const realErrorMessage = err instanceof Error ? err.message : "Unknown error";
+    } catch (err: any) {
+      const realErrorMessage = err.message || JSON.stringify(err);
       logToConsole(`EDIT FAILED: ${realErrorMessage}`, 'error');
       
       if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
@@ -507,8 +519,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         const imgWithId = { ...rawImg, id: Date.now().toString() };
         updateHistory(imgWithId, false);
         logToConsole("OUTPAINTING COMPLETE", 'success');
-    } catch (err) {
-        const realErrorMessage = err instanceof Error ? err.message : "Unknown error";
+    } catch (err: any) {
+        const realErrorMessage = err.message || JSON.stringify(err);
         logToConsole(`OUTPAINT FAILED: ${realErrorMessage}`, 'error');
         
         if (realErrorMessage.includes("QUOTA") || realErrorMessage.includes("429")) {
@@ -700,6 +712,17 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
 
+  // Determine Display Model Name for Footer
+  const getModelDisplayName = (m: AIModel) => {
+      switch(m) {
+          case AIModel.FLASH: return 'UMBRAX-IRIS_5.1';
+          case AIModel.IMAGEN: return 'UMBRX-GEN_2.5';
+          case AIModel.EXP_FLASH: return 'UMBRAX-BETA_2.0 (EXP)';
+          case AIModel.PRO_IMAGE: return 'UMBRAX-PRIME_3.0 (PRE)';
+          default: return 'UNKNOWN_MODEL';
+      }
+  };
+
   return (
     <>
     <div className="w-full max-w-7xl mx-auto flex flex-col items-center pt-20 pb-24 px-4 md:px-6 lg:px-8 animate-fade-in-up">
@@ -863,8 +886,10 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               value={options.model}
               onChange={(e) => setOptions({...options, model: e.target.value as AIModel})}
             >
-              <option value={AIModel.FLASH}>UMBRAX-Iris 5.1</option>
-              <option value={AIModel.IMAGEN}>UMBRX-Gen 2.5</option>
+              <option value={AIModel.FLASH}>UMBRAX-IRIS_5.1</option>
+              <option value={AIModel.EXP_FLASH}>UMBRAX-BETA_2.0 (EXP)</option>
+              <option value={AIModel.IMAGEN}>UMBRX-GEN_2.5</option>
+              <option value={AIModel.PRO_IMAGE}>UMBRAX-PRIME_3.0 (PRE)</option>
             </select>
           </div>
 
@@ -1263,7 +1288,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
             )}
 
             <span className="hidden md:inline text-slate-700">|</span>
-            <span className="hidden md:inline">MODEL: {options.model === AIModel.FLASH ? 'UMBRAX-IRIS_5.1' : 'UMBRX-GEN_2.5'}</span>
+            <span className="hidden md:inline">MODEL: {getModelDisplayName(options.model)}</span>
             <span className="hidden md:inline text-slate-700">|</span>
              <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
                 F&Q // SYNTHESIS CORE
@@ -1271,12 +1296,12 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         </div>
         
         <div className="flex items-center gap-4 opacity-70">
+            <span>ID: {initialId || defaultId}</span>
+            <span className="text-slate-700">|</span>
              {/* Terminal moved here, simplified */}
             <button onClick={toggleConsole} className="hover:text-cyan-400 flex items-center gap-1 transition-colors opacity-50 hover:opacity-100" title="Open System Console">
                 {">_"}
             </button>
-            <span className="text-slate-700">|</span>
-            <span>ID: {initialId || defaultId}</span>
         </div>
     </div>
 
@@ -1294,7 +1319,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                 {consoleLogs.map((log) => (
                     <div key={log.id} className={`font-mono ${log.type === 'error' ? 'text-red-500' : log.type === 'warn' ? 'text-amber-500' : log.type === 'success' ? 'text-green-400' : log.type === 'system' ? 'text-cyan-600 font-bold' : 'text-slate-300'}`}>
                         <span className="opacity-30 mr-2">[{log.timestamp}]</span>
-                        <span>{log.message}</span>
+                        <span className="whitespace-pre-wrap">{log.message}</span>
                     </div>
                 ))}
                 <div ref={consoleEndRef}></div>

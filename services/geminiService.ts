@@ -73,102 +73,90 @@ export const generateImage = async (
 
   const apiRatio = getValidApiRatio(options.aspectRatio);
 
-  try {
-    // --- IMAGEN MODEL PATH ---
-    if (options.model === AIModel.IMAGEN) {
-       if (inputImage) {
-           throw new Error("The selected Imagen model does not support Image-to-Image generation. Please use a Gemini model (UMBRAX-Iris 5.1).");
-       }
+  // --- IMAGEN MODEL PATH ---
+  if (options.model === AIModel.IMAGEN) {
+      if (inputImage) {
+          throw new Error("The selected Imagen model does not support Image-to-Image generation. Please use a Gemini model (UMBRAX-Iris 5.1).");
+      }
 
-       const response = await ai.models.generateImages({
-           model: options.model,
-           prompt: enhancedPrompt,
-           config: {
-               numberOfImages: 1,
-               aspectRatio: apiRatio,
-               outputMimeType: 'image/png'
-           }
-       });
-
-       if (response.generatedImages && response.generatedImages.length > 0) {
-           return {
-               id: Date.now().toString(),
-               base64: response.generatedImages[0].image.imageBytes,
-               mimeType: 'image/png',
-               prompt: prompt,
-               timestamp: Date.now(),
-           };
-       }
-       throw new Error("No image data received from Imagen model.");
-    }
-
-    // --- GEMINI MODEL PATH ---
-    const imageConfig: any = {
-      aspectRatio: apiRatio,
-    };
-
-    let contents: any = enhancedPrompt;
-    
-    // Handle Image-to-Image (Multimodal)
-    if (inputImage) {
-      contents = {
-        parts: [
-          { text: enhancedPrompt },
-          {
-            inlineData: {
-              data: inputImage,
-              mimeType: 'image/png', // Assuming PNG/JPEG from frontend
-            }
+      const response = await ai.models.generateImages({
+          model: options.model,
+          prompt: enhancedPrompt,
+          config: {
+              numberOfImages: 1,
+              aspectRatio: apiRatio,
+              outputMimeType: 'image/png'
           }
-        ]
-      };
-    }
+      });
 
-    const response = await ai.models.generateContent({
-      model: options.model, 
-      contents: contents,
-      config: {
-        imageConfig: imageConfig,
-      },
-    });
-
-    // Extract image
-    if (response.candidates && response.candidates.length > 0) {
-      const content = response.candidates[0].content;
-      if (content.parts) {
-        // First pass: look for valid image data
-        for (const part of content.parts) {
-          if (part.inlineData && part.inlineData.data) {
-            return {
+      if (response.generatedImages && response.generatedImages.length > 0) {
+          return {
               id: Date.now().toString(),
-              base64: part.inlineData.data,
-              mimeType: part.inlineData.mimeType || 'image/png',
+              base64: response.generatedImages[0].image.imageBytes,
+              mimeType: 'image/png',
               prompt: prompt,
               timestamp: Date.now(),
-            };
+          };
+      }
+      throw new Error("No image data received from Imagen model.");
+  }
+
+  // --- GEMINI MODEL PATH ---
+  const imageConfig: any = {
+    aspectRatio: apiRatio,
+  };
+
+  let contents: any = enhancedPrompt;
+  
+  // Handle Image-to-Image (Multimodal)
+  if (inputImage) {
+    contents = {
+      parts: [
+        { text: enhancedPrompt },
+        {
+          inlineData: {
+            data: inputImage,
+            mimeType: 'image/png', // Assuming PNG/JPEG from frontend
           }
         }
-        // Second pass: if no image, check for text to throw as error (e.g. safety refusal)
-        for (const part of content.parts) {
-          if (part.text) {
-            throw new Error(part.text);
-          }
+      ]
+    };
+  }
+
+  const response = await ai.models.generateContent({
+    model: options.model, 
+    contents: contents,
+    config: {
+      imageConfig: imageConfig,
+    },
+  });
+
+  // Extract image
+  if (response.candidates && response.candidates.length > 0) {
+    const content = response.candidates[0].content;
+    if (content.parts) {
+      // First pass: look for valid image data
+      for (const part of content.parts) {
+        if (part.inlineData && part.inlineData.data) {
+          return {
+            id: Date.now().toString(),
+            base64: part.inlineData.data,
+            mimeType: part.inlineData.mimeType || 'image/png',
+            prompt: prompt,
+            timestamp: Date.now(),
+          };
+        }
+      }
+      // Second pass: if no image, check for text to throw as error (e.g. safety refusal)
+      for (const part of content.parts) {
+        if (part.text) {
+          throw new Error(part.text);
         }
       }
     }
-    
-    throw new Error("No image data received from the model.");
-
-  } catch (error: any) {
-    console.error("Error generating image:", error);
-    
-    // Check for specific API errors to provide better messages
-    if (error.message && (error.message.includes("429") || error.message.includes("Quota") || error.message.includes("RESOURCE_EXHAUSTED"))) {
-        throw new Error("API QUOTA EXHAUSTED (429). The current tier cannot process this request.");
-    }
-    
-    throw error;
   }
+  
+  throw new Error("No image data received from the model.");
 };
 
 export const editImage = async (
@@ -178,67 +166,59 @@ export const editImage = async (
 ): Promise<GeneratedImage> => {
   const ai = getClient();
 
-  try {
-    if (options.model === AIModel.IMAGEN) {
-        throw new Error("Edit/Inpainting functions are currently optimized for UMBRAX (Gemini) models only.");
-    }
+  if (options.model === AIModel.IMAGEN) {
+      throw new Error("Edit/Inpainting functions are currently optimized for UMBRAX (Gemini) models only.");
+  }
 
-    // Configure based on selected model
-    const apiRatio = getValidApiRatio(options.aspectRatio);
-    const imageConfig: any = {
-        aspectRatio: apiRatio
-    };
+  // Configure based on selected model
+  const apiRatio = getValidApiRatio(options.aspectRatio);
+  const imageConfig: any = {
+      aspectRatio: apiRatio
+  };
 
-    const response = await ai.models.generateContent({
-      model: options.model, 
-      contents: {
-        parts: [
-          {
-            text: editInstruction,
+  const response = await ai.models.generateContent({
+    model: options.model, 
+    contents: {
+      parts: [
+        {
+          text: editInstruction,
+        },
+        {
+          inlineData: {
+            data: currentImage.base64,
+            mimeType: currentImage.mimeType,
           },
-          {
-            inlineData: {
-              data: currentImage.base64,
-              mimeType: currentImage.mimeType,
-            },
-          },
-        ],
-      },
-      config: {
-        imageConfig: imageConfig,
-      },
-    });
+        },
+      ],
+    },
+    config: {
+      imageConfig: imageConfig,
+    },
+  });
 
-    // Extract image
-    if (response.candidates && response.candidates.length > 0) {
-      const content = response.candidates[0].content;
-      if (content.parts) {
-        for (const part of content.parts) {
-          if (part.inlineData && part.inlineData.data) {
-            return {
-              id: Date.now().toString(),
-              base64: part.inlineData.data,
-              mimeType: part.inlineData.mimeType || 'image/png',
-              prompt: editInstruction, // Update prompt to the latest edit instruction
-              timestamp: Date.now(),
-            };
-          }
+  // Extract image
+  if (response.candidates && response.candidates.length > 0) {
+    const content = response.candidates[0].content;
+    if (content.parts) {
+      for (const part of content.parts) {
+        if (part.inlineData && part.inlineData.data) {
+          return {
+            id: Date.now().toString(),
+            base64: part.inlineData.data,
+            mimeType: part.inlineData.mimeType || 'image/png',
+            prompt: editInstruction, // Update prompt to the latest edit instruction
+            timestamp: Date.now(),
+          };
         }
-        // If no image, check for text error
-        for (const part of content.parts) {
-          if (part.text) {
-            throw new Error(part.text);
-          }
+      }
+      // If no image, check for text error
+      for (const part of content.parts) {
+        if (part.text) {
+          throw new Error(part.text);
         }
       }
     }
-
-    throw new Error("No edited image data received from the model.");
-  } catch (error: any) {
-    console.error("Error editing image:", error);
-    if (error.message && (error.message.includes("429") || error.message.includes("Quota") || error.message.includes("RESOURCE_EXHAUSTED"))) {
-        throw new Error("API QUOTA EXHAUSTED (429). Edit request denied.");
-    }
-    throw error;
   }
+
+  throw new Error("No edited image data received from the model.");
 };
