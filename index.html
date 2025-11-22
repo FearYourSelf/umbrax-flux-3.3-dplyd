@@ -18,6 +18,24 @@
         /* Hide standard scrollbar for custom smooth scroll implementation */
         scrollbar-width: none; /* Firefox */
         -ms-overflow-style: none;  /* IE 10+ */
+        transition: filter 0.5s ease;
+      }
+      
+      /* CRITICAL ERROR THEME SHIFT */
+      body.theme-critical {
+        filter: hue-rotate(150deg) saturate(1.5) contrast(1.2);
+        animation: error-pulse 0.5s ease-in-out infinite alternate;
+      }
+
+      body.theme-critical .text-red-500, 
+      body.theme-critical .text-red-400 {
+        /* Invert reds back so error text stays readable/red (double shift makes them blue otherwise) */
+        filter: hue-rotate(-150deg); 
+      }
+
+      @keyframes error-pulse {
+        from { box-shadow: inset 0 0 0 rgba(255, 0, 0, 0); }
+        to { box-shadow: inset 0 0 50px rgba(255, 0, 0, 0.2); }
       }
       
       body::-webkit-scrollbar { 

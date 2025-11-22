@@ -158,6 +158,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   // Void Mode State
   const [isVoidMode, setIsVoidMode] = useState(false);
+  const [isCriticalError, setIsCriticalError] = useState(false);
 
   // Comparison Mode
   const [isCompareMode, setIsCompareMode] = useState(false);
@@ -216,7 +217,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const [consoleSize, setConsoleSize] = useState<ConsoleSize>('small');
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [consoleInput, setConsoleInput] = useState('');
-  const consoleEndRef = useRef<HTMLDivElement>(null);
+  const consoleContainerRef = useRef<HTMLDivElement>(null);
   const consoleInputRef = useRef<HTMLInputElement>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -229,6 +230,19 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       // Max intensity at 100 chars
       setInputIntensity(Math.min(length / 100, 1));
   }, [prompt]);
+
+  // --- CRITICAL ERROR HANDLER ---
+  const triggerCriticalError = () => {
+      setIsCriticalError(true);
+      // Apply class to body globally
+      document.body.classList.add('theme-critical');
+      
+      // Revert after 4 seconds
+      setTimeout(() => {
+          setIsCriticalError(false);
+          document.body.classList.remove('theme-critical');
+      }, 4000);
+  };
 
   // Helper to log to console
   const logToConsole = (message: string | object, type: LogEntry['type'] = 'info') => {
@@ -252,10 +266,10 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     setConsoleLogs(prev => [...prev, newLog]);
   };
 
-  // Scroll console to bottom
+  // Scroll console to bottom (FIXED: uses scrollTop to avoid page scrolling)
   useEffect(() => {
-    if (isConsoleOpen && consoleEndRef.current) {
-        consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (isConsoleOpen && consoleContainerRef.current) {
+        consoleContainerRef.current.scrollTop = consoleContainerRef.current.scrollHeight;
     }
   }, [consoleLogs, isConsoleOpen]);
 
@@ -299,7 +313,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
           switch(cmd) {
               case 'help':
                   logToConsole("AVAILABLE COMMANDS:", 'system');
-                  logToConsole("CORE: help, clear, ver, uptime, date, whoami, exit", 'info');
+                  logToConsole("CORE: help, clear, ver, uptime, date, whoami, exit, error_test", 'info');
                   logToConsole("ADMIN: nsd, creator, socials, root", 'warn');
                   logToConsole("NET:  ping, trace, scan, ipconfig, netstat, nslookup, ssh, portscan", 'info');
                   logToConsole("SYS:  sys_status, top, ps, dmesg, kill, reboot, env, uname, coolant", 'info');
@@ -307,6 +321,12 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                   logToConsole("MISC: matrix, weather, quote, neofetch, override, sudo, quantum", 'info');
                   break;
               
+              // --- DEBUG / TEST ---
+              case 'error_test':
+                  logToConsole("TRIGGERING ARTIFICIAL SYSTEM FAILURE...", 'error');
+                  triggerCriticalError();
+                  break;
+
               // --- ADMIN / EASTER EGGS ---
               case 'nsd':
               case 'admin':
@@ -729,20 +749,28 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
         uploadedImage || undefined
       );
       
+      // Store clean version before watermark
+      const cleanBase64 = image.base64;
+
       // Automatically apply watermark
       const watermarkedBase64 = await applyWatermark(image.base64);
-      const finalImage = { ...image, base64: watermarkedBase64 };
+      const finalImage: GeneratedImage = { 
+          ...image, 
+          base64: watermarkedBase64,
+          cleanBase64: cleanBase64 // Save raw
+      };
 
       updateHistory(finalImage, true);
       logToConsole("GENERATION COMPLETE. IMAGE RENDERED.", 'success');
       
     } catch (err: any) {
-      const errorMessage = err.message || "Unknown error";
       console.error(err);
       logToConsole(`CRITICAL ERROR: ${JSON.stringify(err)}`, 'error');
+      triggerCriticalError(); // TRIGGER RED THEME
       
-      // Thematic error message for UI (Still logged, but UI shows full error now per request)
-      setError(errorMessage); // Show real error per user request
+      // Pick random thematic error
+      const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+      setError(randomError);
     } finally {
       setIsLoading(false);
       setProcessingMessage("");
@@ -770,11 +798,24 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
          finalPrompt = `Apply this change EXCLUSIVELY to the region bounded by Top: ${top}%, Left: ${left}%, Width: ${width}%, Height: ${height}%. Task: ${editPrompt}`;
       }
 
-      const image = await editImage(generatedImage, finalPrompt, options);
+      // USE CLEAN BASE64 IF AVAILABLE
+      const sourceImage = {
+          ...generatedImage,
+          base64: generatedImage.cleanBase64 || generatedImage.base64
+      };
+
+      const image = await editImage(sourceImage, finalPrompt, options);
       
+      // Store new clean version
+      const cleanBase64 = image.base64;
+
       // Re-apply watermark on edited image
       const watermarkedBase64 = await applyWatermark(image.base64);
-      const finalImage = { ...image, base64: watermarkedBase64 };
+      const finalImage = { 
+          ...image, 
+          base64: watermarkedBase64,
+          cleanBase64: cleanBase64
+      };
 
       updateHistory(finalImage);
       setEditPrompt('');
@@ -784,10 +825,11 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       }
       logToConsole("EDIT COMPLETE. MATRIX UPDATED.", 'success');
     } catch (err: any) {
-      const errorMessage = err.message || "Unknown error";
       console.error(err);
       logToConsole(`EDIT ERROR: ${JSON.stringify(err)}`, 'error');
-      setError(errorMessage);
+      triggerCriticalError(); // TRIGGER RED THEME
+      const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+      setError(randomError);
     } finally {
       setIsLoading(false);
       setProcessingMessage("");
@@ -800,28 +842,40 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     setProcessingMessage("EXPANDING CANVAS BOUNDARIES...");
     
     try {
-      const extendedBase64 = await extendImage(generatedImage.base64);
+      // USE CLEAN BASE64
+      const sourceBase64 = generatedImage.cleanBase64 || generatedImage.base64;
+      
+      const extendedBase64 = await extendImage(sourceBase64);
       const extendedImage: GeneratedImage = {
         ...generatedImage,
         id: Date.now().toString(),
         base64: extendedBase64,
+        cleanBase64: extendedBase64, // This is the extended clean base
         timestamp: Date.now()
       };
       // We treat this as a new edit in the history
       updateHistory(extendedImage);
       
-      // Now ask AI to fill it
+      // Now ask AI to fill it (using the extended image which is clean)
       const filledImage = await editImage(extendedImage, "Seamlessly extend the scene into the empty dark area, matching the style and lighting of the central image.", options);
       
+      const filledClean = filledImage.base64;
+
       // Re-apply watermark
-      const watermarkedBase64 = await applyWatermark(filledImage.base64);
-      const finalImage = { ...filledImage, base64: watermarkedBase64 };
+      const watermarkedBase64 = await applyWatermark(filledClean);
+      const finalImage = { 
+          ...filledImage, 
+          base64: watermarkedBase64,
+          cleanBase64: filledClean
+      };
 
       updateHistory(finalImage); // Update again with filled version
       logToConsole("OUTPAINTING COMPLETE. HORIZON EXPANDED.", 'success');
     } catch (err: any) {
        logToConsole(`OUTPAINT ERROR: ${JSON.stringify(err)}`, 'error');
-       setError("EXPANSION FAILED: BOUNDARY ERROR");
+       triggerCriticalError(); // TRIGGER RED THEME
+       const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+       setError(randomError);
     } finally {
       setIsLoading(false);
     }
@@ -876,10 +930,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       
       // Capture pointer on the container to track movement outside
       e.currentTarget.setPointerCapture(e.pointerId);
+      
+      // Make sure we have the image rect for accurate calculations
+      if (!imageRef.current) return;
+      const rect = imageRef.current.getBoundingClientRect();
 
-      if (isTargetMode && imageRef.current) {
+      if (isTargetMode) {
           // DRAW BOX LOGIC - Relative to Image Element
-          const rect = imageRef.current.getBoundingClientRect();
           const xPct = ((e.clientX - rect.left) / rect.width) * 100;
           const yPct = ((e.clientY - rect.top) / rect.height) * 100;
           
@@ -896,9 +953,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   const handlePointerMove = (e: React.PointerEvent) => {
       e.preventDefault(); // Prevent native behaviors
-      if (!generatedImage) return;
+      if (!generatedImage || !imageRef.current) return;
 
-      if (isTargetMode && isDrawingBox && drawStart && imageRef.current) {
+      if (isTargetMode && isDrawingBox && drawStart) {
           // DRAW BOX LOGIC - Relative to Image Element
           const rect = imageRef.current.getBoundingClientRect();
           let currX = ((e.clientX - rect.left) / rect.width) * 100;
@@ -951,19 +1008,21 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       
       {/* --- HEADER --- */}
       <header className="pt-8 pb-6 px-6 md:px-12 flex flex-col md:flex-row justify-between items-center animate-slide-down relative gap-4 md:gap-0">
-        {/* Header Left: Logo/Title */}
-        <div className="text-center md:text-left">
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tighter">
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">UMBRAX</span> 
-            <span className="text-cyan-500 ml-2 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">FLUX 3</span>
-          </h2>
-          <p className="text-xs text-slate-500 tracking-[0.5em] mt-1 uppercase font-mono">
-            Dreams Engineered.
-          </p>
+        {/* Header Left: Logo/Title - Wrapped for Flex Layout */}
+        <div className="flex flex-col md:flex-row w-full md:w-auto items-center justify-between md:justify-start">
+            <div className="text-center md:text-left">
+              <h2 className="text-2xl md:text-3xl font-bold tracking-tighter">
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">UMBRAX</span> 
+                <span className="text-cyan-500 ml-2 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">FLUX 3</span>
+              </h2>
+              <p className="text-xs text-slate-500 tracking-[0.5em] mt-1 uppercase font-mono">
+                Dreams Engineered.
+              </p>
+            </div>
         </div>
         
-        {/* Header Right: Buttons */}
-        <div className="flex gap-4">
+        {/* Header Right: Buttons - Desktop */}
+        <div className="hidden md:flex gap-4">
             <MagneticButton 
               onClick={() => setShowGallery(true)}
               className="flex items-center gap-2 px-5 py-2 bg-slate-900/50 border border-slate-700 rounded-lg hover:border-cyan-500 hover:text-cyan-400 transition-all backdrop-blur-md uppercase text-xs tracking-widest font-bold"
@@ -979,6 +1038,23 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
             >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                 <span className="text-[8px] uppercase tracking-wider">Void Mode</span>
+            </button>
+        </div>
+
+        {/* Mobile Buttons Row */}
+        <div className="flex md:hidden gap-4 w-full justify-center mt-4">
+             <MagneticButton 
+              onClick={() => setShowGallery(true)}
+              className="flex items-center gap-2 px-5 py-2 bg-slate-900/50 border border-slate-700 rounded-lg hover:border-cyan-500 hover:text-cyan-400 transition-all backdrop-blur-md uppercase text-xs tracking-widest font-bold"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              Gallery
+            </MagneticButton>
+             <button 
+                onClick={() => setIsVoidMode(!isVoidMode)}
+                className="text-slate-600 hover:text-white transition-colors flex flex-col items-center gap-1"
+            >
+                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
             </button>
         </div>
       </header>
@@ -1275,7 +1351,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               </div>
             )}
             
-            {/* Error State */}
+            {/* Error State - REVERTED TO THEMATIC */}
             {error && !isLoading && (
                 <div className="text-center max-w-lg px-6">
                    <div className="text-red-500 text-4xl mb-4">⚠</div>
@@ -1395,10 +1471,19 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                                <button 
                                    onClick={async () => {
                                        if(!generatedImage) return;
-                                       const filtered = await applyImageAdjustments(generatedImage.base64, adjustments);
+                                       // USE CLEAN SOURCE
+                                       const source = generatedImage.cleanBase64 || generatedImage.base64;
+                                       const filteredClean = await applyImageAdjustments(source, adjustments);
+                                       
                                        // Re-apply watermark
-                                       const watermarked = await applyWatermark(filtered);
-                                       updateHistory({ ...generatedImage, id: Date.now().toString(), base64: watermarked, timestamp: Date.now() });
+                                       const watermarked = await applyWatermark(filteredClean);
+                                       updateHistory({ 
+                                           ...generatedImage, 
+                                           id: Date.now().toString(), 
+                                           base64: watermarked, 
+                                           cleanBase64: filteredClean,
+                                           timestamp: Date.now() 
+                                       });
                                    }}
                                    className="w-full py-1 bg-cyan-600 text-white text-xs rounded"
                                >Apply</button>
@@ -1418,12 +1503,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       {/* CONSOLE OVERLAY */}
       {isConsoleOpen && createPortal(
           <div 
+            ref={consoleContainerRef}
             className={`fixed bottom-0 left-0 right-0 z-[100] bg-[#0a0f1e]/95 backdrop-blur-xl border-t border-cyan-500/30 shadow-[0_-10px_50px_rgba(0,0,0,0.8)] transition-all duration-300 animate-fade-in-up font-mono text-xs text-green-400 flex flex-col ${
                 consoleSize === 'small' ? 'h-[200px]' : consoleSize === 'medium' ? 'h-[50vh]' : 'h-[100vh]'
             }`}
           >
               {/* Header */}
-              <div className="flex justify-between items-center px-4 py-1 bg-cyan-950/50 border-b border-cyan-500/20 select-none">
+              <div className="flex justify-between items-center px-4 py-1 bg-cyan-950/50 border-b border-cyan-500/20 select-none shrink-0">
                   <span className="tracking-widest text-cyan-500 uppercase text-[10px]">UMBRAX_KERNEL_DEBUG_SHELL</span>
                   <div className="flex items-center gap-3">
                       <button onClick={() => setConsoleSize(consoleSize === 'small' ? 'medium' : consoleSize === 'medium' ? 'full' : 'small')} className="hover:text-white text-cyan-600" title="Resize">
@@ -1441,11 +1527,10 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                           <span className="break-all whitespace-pre-wrap font-mono">{log.message}</span>
                       </div>
                   ))}
-                  <div ref={consoleEndRef} />
               </div>
               
               {/* Input */}
-              <div className="p-2 bg-black/60 border-t border-white/5 flex items-center gap-2 pb-8 md:pb-2">
+              <div className="p-2 bg-black/60 border-t border-white/5 flex items-center gap-2 pb-8 md:pb-2 shrink-0">
                   <span className="text-cyan-500">{`>`}</span>
                   <input 
                     ref={consoleInputRef}

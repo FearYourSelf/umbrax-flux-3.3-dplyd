@@ -47,6 +47,7 @@ export interface GeneratedImage {
   mimeType: string;
   prompt: string;
   timestamp: number;
+  cleanBase64?: string; // Stores the raw image without watermark for editing
 }
 
 export interface Preset {
