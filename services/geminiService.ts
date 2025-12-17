@@ -2,13 +2,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { GenerationOptions, GeneratedImage, AIModel, AspectRatio, Aesthetic } from "../types";
 
-// Default injected key (as requested), but allows override
-const DEFAULT_API_KEY = "AIzaSyA3ci19iifvExK8pWZ7fwdkeWdYzUBmwHc";
-
 const getClient = (customKey?: string) => {
-  const apiKey = customKey || DEFAULT_API_KEY;
+  const apiKey = customKey;
   if (!apiKey) {
-    throw new Error("API_KEY is missing.");
+    throw new Error("API_KEY_MISSING");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -20,24 +17,39 @@ const getValidApiRatio = (ratio: string): string => {
   return "1:1"; // Fallback for custom
 };
 
+export const validateCredentials = async (apiKey: string): Promise<boolean> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        // Try a very cheap/fast call to verify the key works
+        await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: "test",
+        });
+        return true;
+    } catch (e) {
+        console.error("Credential validation failed:", e);
+        return false;
+    }
+};
+
 export const getPromptEnhancements = async (currentPrompt: string, apiKey?: string): Promise<string[]> => {
-  const ai = getClient(apiKey);
-  const model = "gemini-2.5-flash"; 
-
-  const prompt = `
-    You are a creative assistant for an AI image generator. 
-    The user has input: "${currentPrompt}".
-    
-    Please generate 3 distinct, improved variations of this prompt to create a better visual image.
-    1. A more detailed, photorealistic version.
-    2. A version focusing on artistic style and lighting.
-    3. A version that is abstract or conceptual.
-    
-    Return ONLY the 3 prompt variations as a JSON string array. No markdown formatting.
-    Example: ["Prompt 1...", "Prompt 2...", "Prompt 3..."]
-  `;
-
   try {
+    const ai = getClient(apiKey);
+    const model = "gemini-2.5-flash"; 
+
+    const prompt = `
+      You are a creative assistant for an AI image generator. 
+      The user has input: "${currentPrompt}".
+      
+      Please generate 3 distinct, improved variations of this prompt to create a better visual image.
+      1. A more detailed, photorealistic version.
+      2. A version focusing on artistic style and lighting.
+      3. A version that is abstract or conceptual.
+      
+      Return ONLY the 3 prompt variations as a JSON string array. No markdown formatting.
+      Example: ["Prompt 1...", "Prompt 2...", "Prompt 3..."]
+    `;
+
     const response = await ai.models.generateContent({
       model,
       contents: prompt,

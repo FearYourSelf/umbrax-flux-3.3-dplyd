@@ -12,7 +12,7 @@ import {
   SelectionBox,
   ImageAdjustments
 } from '../types';
-import { generateImage, editImage, getPromptEnhancements } from '../services/geminiService';
+import { generateImage, editImage, getPromptEnhancements, validateCredentials } from '../services/geminiService';
 import { extendImage, applyImageAdjustments, applyOutline, cropImage, applyWatermark } from '../services/imageUtils';
 import Loader from './Loader';
 
@@ -140,8 +140,6 @@ const THEMATIC_ERRORS = [
     "AI MODEL HALLUCINATION THRESHOLD EXCEEDED"
 ];
 
-const ADMIN_KEY = "AIzaSyA3ci19iifvExK8pWZ7fwdkeWdYzUBmwHc";
-
 type ConsoleSize = 'small' | 'medium' | 'full';
 
 const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
@@ -153,6 +151,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
   // Custom API Key State
   const [customApiKey, setCustomApiKey] = useState('');
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isVerifyingAuth, setIsVerifyingAuth] = useState(false);
+  const [authModalError, setAuthModalError] = useState('');
   
   // Reactive Input State
   const [inputIntensity, setInputIntensity] = useState(0);
@@ -811,14 +811,40 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
       }
   }
 
-  const handleAuthSubmit = () => {
-      setShowAuthModal(false);
-      setError(null); // Clear thematic error
-      logToConsole("AUTH KEY UPDATED. RETRY OPERATION.", 'success');
+  const handleAuthSubmit = async () => {
+      if (!customApiKey.trim()) {
+          setAuthModalError("INVALID: KEY STRING EMPTY");
+          return;
+      }
+
+      setIsVerifyingAuth(true);
+      setAuthModalError("");
+      logToConsole("VERIFYING SECURITY CREDENTIALS...", 'warn');
+
+      const isValid = await validateCredentials(customApiKey);
+
+      if (isValid) {
+          setShowAuthModal(false);
+          setError(null); // Clear thematic error
+          logToConsole("IDENTITY VERIFIED. ENCRYPTION KEYS ROTATED.", 'success');
+          // Optional: Auto-retry logic could go here, but for now we let the user click Initiate again
+      } else {
+          setAuthModalError("ACCESS DENIED: KEY INVALID OR EXPIRED");
+          logToConsole("AUTH FAILURE: CREDENTIALS REJECTED BY HOST", 'error');
+      }
+      setIsVerifyingAuth(false);
   };
 
   const handleGenerate = async () => {
     if (!prompt.trim() && !uploadedImage) return;
+
+    // --- CHECK FOR API KEY FIRST ---
+    if (!customApiKey) {
+        logToConsole("SECURITY PROTOCOL: MISSING AUTH KEY", 'warn');
+        setError("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED");
+        setShowAuthModal(true);
+        return;
+    }
 
     // --- RATE LIMIT CHECK ---
     if (!checkRateLimit()) return;
@@ -839,7 +865,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
         prompt, 
         { ...options, aspectRatio: finalRatio },
         uploadedImage || undefined,
-        customApiKey
+        customApiKey // Pass the key state
       );
       
       // Store clean version before watermark
@@ -895,6 +921,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
 
   const handleEdit = async () => {
     if (!generatedImage || !editPrompt.trim()) return;
+
+    if (!customApiKey) {
+        logToConsole("SECURITY PROTOCOL: MISSING AUTH KEY", 'warn');
+        setError("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED");
+        setShowAuthModal(true);
+        return;
+    }
     
     // --- RATE LIMIT CHECK ---
     if (!checkRateLimit()) return;
@@ -970,6 +1003,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
 
   const handleOutpaint = async () => {
     if (!generatedImage) return;
+
+    if (!customApiKey) {
+        logToConsole("SECURITY PROTOCOL: MISSING AUTH KEY", 'warn');
+        setError("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED");
+        setShowAuthModal(true);
+        return;
+    }
 
     // --- RATE LIMIT CHECK ---
     if (!checkRateLimit()) return;
@@ -1652,7 +1692,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
       {/* AUTH MODAL */}
       {showAuthModal && createPortal(
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-              <div className="w-full max-w-sm bg-slate-900 border border-red-500/50 rounded-xl p-6 shadow-[0_0_50px_rgba(239,68,68,0.2)] relative overflow-hidden">
+              <div className={`w-full max-w-sm bg-slate-900 border ${authModalError ? 'border-red-500' : 'border-red-500/50'} rounded-xl p-6 shadow-[0_0_50px_rgba(239,68,68,0.2)] relative overflow-hidden transition-all duration-300 ${authModalError ? 'animate-shake' : ''}`}>
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-amber-500"></div>
                   
                   <div className="flex items-center gap-3 mb-4 text-red-500">
@@ -1671,21 +1711,30 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
                           <input 
                             type="password"
                             value={customApiKey}
-                            defaultValue={username === 'nsdadmin' && !customApiKey ? ADMIN_KEY : customApiKey}
-                            onChange={(e) => setCustomApiKey(e.target.value)}
+                            onChange={(e) => {
+                                setCustomApiKey(e.target.value);
+                                setAuthModalError('');
+                            }}
                             placeholder="ENTER_API_KEY_SEQUENCE"
-                            className="w-full bg-black/50 border border-red-900/50 rounded p-3 text-white text-xs font-mono focus:border-red-500 outline-none tracking-wider placeholder-red-900/50"
+                            className={`w-full bg-black/50 border ${authModalError ? 'border-red-500 text-red-500' : 'border-red-900/50 text-white'} rounded p-3 text-xs font-mono focus:border-red-500 outline-none tracking-wider placeholder-red-900/50 transition-colors`}
                             autoFocus
                           />
+                          {authModalError && <p className="text-[10px] text-red-500 mt-1 font-mono">{authModalError}</p>}
                       </div>
                       
                       <div className="flex justify-end gap-3 pt-2">
                           <button onClick={() => setShowAuthModal(false)} className="px-4 py-2 text-slate-500 hover:text-white text-xs uppercase tracking-widest">Abort</button>
                           <button 
                             onClick={handleAuthSubmit}
-                            className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded text-xs uppercase tracking-widest shadow-[0_0_15px_rgba(220,38,38,0.4)] flex items-center gap-2"
+                            disabled={isVerifyingAuth}
+                            className={`px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded text-xs uppercase tracking-widest shadow-[0_0_15px_rgba(220,38,38,0.4)] flex items-center gap-2 ${isVerifyingAuth ? 'opacity-70 cursor-wait' : ''}`}
                           >
-                              Authorize
+                              {isVerifyingAuth ? (
+                                  <>
+                                    <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    Verifying...
+                                  </>
+                              ) : 'Authorize'}
                           </button>
                       </div>
                   </div>
