@@ -29,7 +29,6 @@ export enum Aesthetic {
 export enum AIModel {
   FLASH = "gemini-2.5-flash-image",
   IMAGEN = "imagen-4.0-generate-001",
-  EXP_FLASH = "gemini-2.0-flash-exp",
   PRO_IMAGE = "gemini-3-pro-image-preview"
 }
 

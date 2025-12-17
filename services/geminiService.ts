@@ -2,10 +2,13 @@
 import { GoogleGenAI } from "@google/genai";
 import { GenerationOptions, GeneratedImage, AIModel, AspectRatio, Aesthetic } from "../types";
 
-const getClient = () => {
-  const apiKey = process.env.API_KEY;
+// Default injected key (as requested), but allows override
+const DEFAULT_API_KEY = "AIzaSyA3ci19iifvExK8pWZ7fwdkeWdYzUBmwHc";
+
+const getClient = (customKey?: string) => {
+  const apiKey = customKey || DEFAULT_API_KEY;
   if (!apiKey) {
-    throw new Error("API_KEY is missing from environment variables.");
+    throw new Error("API_KEY is missing.");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -17,9 +20,9 @@ const getValidApiRatio = (ratio: string): string => {
   return "1:1"; // Fallback for custom
 };
 
-export const getPromptEnhancements = async (currentPrompt: string): Promise<string[]> => {
-  const ai = getClient();
-  const model = "gemini-2.5-flash"; // Use text model for suggestions
+export const getPromptEnhancements = async (currentPrompt: string, apiKey?: string): Promise<string[]> => {
+  const ai = getClient(apiKey);
+  const model = "gemini-2.5-flash"; 
 
   const prompt = `
     You are a creative assistant for an AI image generator. 
@@ -53,9 +56,10 @@ export const getPromptEnhancements = async (currentPrompt: string): Promise<stri
 export const generateImage = async (
   prompt: string,
   options: GenerationOptions,
-  inputImage?: string // Base64 string (no prefix)
+  inputImage?: string, // Base64 string (no prefix)
+  apiKey?: string // Optional override
 ): Promise<GeneratedImage> => {
-  const ai = getClient();
+  const ai = getClient(apiKey);
   
   // Only append specific configuration if not General
   const aestheticConfig = options.aesthetic === Aesthetic.GENERAL 
@@ -163,9 +167,10 @@ export const generateImage = async (
 export const editImage = async (
   currentImage: GeneratedImage,
   editInstruction: string,
-  options: GenerationOptions
+  options: GenerationOptions,
+  apiKey?: string
 ): Promise<GeneratedImage> => {
-  const ai = getClient();
+  const ai = getClient(apiKey);
 
   if (options.model === AIModel.IMAGEN) {
       throw new Error("Edit/Inpainting functions are currently optimized for UMBRAX (Gemini) models only.");

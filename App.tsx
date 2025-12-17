@@ -91,6 +91,9 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState(false);
   const [isExitingLogin, setIsExitingLogin] = useState(false);
   
+  // Track authenticated user
+  const [username, setUsername] = useState<string>('');
+  
   // Mouse Parallax State
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
@@ -265,6 +268,7 @@ const App: React.FC = () => {
     // Check for valid passwords
     if (passwordInput === 'genygen' || passwordInput === 'nsdadmin') {
       setAuthError(false);
+      setUsername(passwordInput); // Store username
       setIsExitingLogin(true); // Trigger exit animation
       setTimeout(() => {
         setViewState('APP');
@@ -400,13 +404,12 @@ const App: React.FC = () => {
 
         {viewState === 'APP' && (
           <div className="min-h-screen">
-             <Generator initialId={sessionId} />
+             <Generator initialId={sessionId} username={username} />
           </div>
         )}
     </div>
         
     {/* Persistent Footer for Non-App Views */}
-    {/* Must be fixed outside scroll container to stay on screen */}
     {viewState !== 'APP' && (
             <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
             <div className="flex items-center gap-4">
@@ -418,14 +421,19 @@ const App: React.FC = () => {
                     SYSTEM READY
                 </span>
                 <span className="hidden md:inline text-slate-700">|</span>
-                <span className="hidden md:inline">MODEL: UMBRAX-IRIS_5.1</span>
+                <span className="hidden md:inline">MODEL: NSD-CORE/70B (IRIS)</span>
                 <span className="hidden md:inline text-slate-700">|</span>
                 <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
                     F&Q // SYNTHESIS CORE
                 </a>
             </div>
-            <div className="opacity-70">
-                ID: {sessionId}
+            <div className="flex items-center gap-4">
+                 <a href="https://fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:flex items-center gap-2 text-[10px] text-[#8b5bf5] hover:text-[#a78bfa] transition-all font-bold tracking-widest hover:shadow-[0_0_15px_rgba(139,91,245,0.4)]">
+                    POWERED BY NSD-CORE/70B
+                </a>
+                <span className="opacity-70">
+                    ID: {sessionId}
+                </span>
             </div>
         </div>
     )}

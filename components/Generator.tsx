@@ -18,6 +18,7 @@ import Loader from './Loader';
 
 interface GeneratorProps {
   initialId?: string;
+  username?: string;
 }
 
 interface LogEntry {
@@ -26,6 +27,16 @@ interface LogEntry {
     type: 'info' | 'error' | 'success' | 'system' | 'warn';
     message: string;
 }
+
+// --- COMPONENT: TOAST NOTIFICATION ---
+const Toast: React.FC<{ message: string, visible: boolean }> = ({ message, visible }) => (
+    <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[100] transition-all duration-300 pointer-events-none ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+        <div className="bg-amber-900/40 border border-amber-500/50 backdrop-blur-md text-amber-400 px-6 py-3 rounded-lg shadow-[0_0_30px_rgba(245,158,11,0.2)] flex items-center gap-3">
+             <svg className="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+             <span className="font-mono font-bold tracking-widest text-xs uppercase">{message}</span>
+        </div>
+    </div>
+);
 
 // --- COMPONENT: TILT PANEL (3D Holographic Effect + Glare) ---
 interface TiltPanelProps {
@@ -129,13 +140,19 @@ const THEMATIC_ERRORS = [
     "AI MODEL HALLUCINATION THRESHOLD EXCEEDED"
 ];
 
+const ADMIN_KEY = "AIzaSyA3ci19iifvExK8pWZ7fwdkeWdYzUBmwHc";
+
 type ConsoleSize = 'small' | 'medium' | 'full';
 
-const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
+const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
   const [prompt, setPrompt] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  
+  // Custom API Key State
+  const [customApiKey, setCustomApiKey] = useState('');
+  const [showAuthModal, setShowAuthModal] = useState(false);
   
   // Reactive Input State
   const [inputIntensity, setInputIntensity] = useState(0);
@@ -224,6 +241,51 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   const imageWrapperRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null); // Explicit ref for the image element
 
+  // --- RATE LIMIT STATE ---
+  const [hourlyUsage, setHourlyUsage] = useState<number[]>([]);
+  const [toastState, setToastState] = useState({ visible: false, message: '' });
+  
+  // Load Rate Limit
+  useEffect(() => {
+    try {
+        const stored = localStorage.getItem('umbrax_hourly_usage');
+        if (stored) setHourlyUsage(JSON.parse(stored));
+    } catch(e) {}
+  }, []);
+
+  // Save Rate Limit
+  useEffect(() => {
+    localStorage.setItem('umbrax_hourly_usage', JSON.stringify(hourlyUsage));
+  }, [hourlyUsage]);
+
+  // Rate Limit Check Function
+  const checkRateLimit = () => {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+    // Filter timestamps to only those within the last hour
+    const valid = hourlyUsage.filter(t => now - t < oneHour);
+    
+    // Auto-clean old records if state needs update
+    if (valid.length !== hourlyUsage.length) setHourlyUsage(valid);
+
+    // Limit: 20 requests per hour
+    if (valid.length >= 20) {
+        const oldest = Math.min(...valid);
+        const resetTime = oldest + oneHour;
+        const minsLeft = Math.ceil((resetTime - now) / 60000);
+        
+        setToastState({ visible: true, message: `HOURLY LIMIT REACHED. RESUME IN ${minsLeft} MIN.` });
+        setTimeout(() => setToastState(s => ({ ...s, visible: false })), 5000);
+        logToConsole(`RATE LIMIT: QUOTA EXCEEDED (${valid.length}/20). RESET IN ${minsLeft}m`, 'warn');
+        return false;
+    }
+    return true;
+  };
+
+  const incrementRateLimit = () => {
+      setHourlyUsage(prev => [...prev, Date.now()]);
+  };
+
   // Update Input Intensity based on prompt length
   useEffect(() => {
       const length = prompt.length;
@@ -293,7 +355,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   useEffect(() => {
       logToConsole("UMBRAX KERNEL INITIALIZED...", 'system');
       logToConsole(`SESSION ID: ${initialId || defaultId}`, 'info');
-      logToConsole("CONNECTING TO NSD-CORE/17B API NODE...", 'warn');
+      logToConsole(`USER: ${username || 'GUEST'}`, 'info');
+      logToConsole("CONNECTING TO NSD-CORE/70B API NODE...", 'warn');
       logToConsole("CONNECTION ESTABLISHED. READY FOR INPUT.", 'success');
   }, []);
 
@@ -314,7 +377,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               case 'help':
                   logToConsole("AVAILABLE COMMANDS:", 'system');
                   logToConsole("CORE: help, clear, ver, uptime, date, whoami, exit, error_test", 'info');
-                  logToConsole("ADMIN: nsd, creator, socials, root", 'warn');
+                  logToConsole("ADMIN: nsd, creator, socials, root, lockdown, unlock", 'warn');
                   logToConsole("NET:  ping, trace, scan, ipconfig, netstat, nslookup, ssh, portscan", 'info');
                   logToConsole("SYS:  sys_status, top, ps, dmesg, kill, reboot, env, uname, coolant", 'info');
                   logToConsole("FILE: ls, cat, mkdir, rm, touch, chmod, du, decrypt", 'info');
@@ -325,6 +388,24 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               case 'error_test':
                   logToConsole("TRIGGERING ARTIFICIAL SYSTEM FAILURE...", 'error');
                   triggerCriticalError();
+                  break;
+
+              // --- RATE LIMIT COMMANDS (NEW) ---
+              case 'lockdown':
+                  logToConsole("OVERRIDING SAFETY PROTOCOLS...", 'warn');
+                  logToConsole("INJECTING ARTIFICIAL LOAD...", 'warn');
+                  setHourlyUsage(Array(20).fill(Date.now()));
+                  setToastState({ visible: true, message: "HOURLY LIMIT REACHED. SYSTEM LOCKED." });
+                  setTimeout(() => setToastState(s => ({ ...s, visible: false })), 5000);
+                  setTimeout(() => logToConsole("LOCKDOWN ACTIVE. GENERATION DISABLED.", 'error'), 800);
+                  break;
+              
+              case 'unlock':
+              case 'reset_limit':
+                  setHourlyUsage([]);
+                  setToastState({ visible: false, message: "" }); // Hide toast if active
+                  logToConsole("ADMIN OVERRIDE: QUOTA RESET.", 'success');
+                  logToConsole("GENERATION CAPABILITIES RESTORED.", 'info');
                   break;
 
               // --- ADMIN / EASTER EGGS ---
@@ -360,7 +441,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
               case 'version':
                   logToConsole("UMBRAX FLUX v3.0.1 (STABLE)", 'info');
                   logToConsole("BUILD: 2024-REL-C", 'info');
-                  logToConsole("KERNEL: NSD-CORE 17B", 'info');
+                  logToConsole("KERNEL: NSD-CORE 70B", 'info');
                   break;
               case 'flux_check':
                   logToConsole("CALIBRATING FLUX EMITTERS...", 'warn');
@@ -667,15 +748,17 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     return () => clearTimeout(t);
   }, [generatedImage?.id]);
 
-  // FIX: Zoom Scroll prevention.
+  // FIX: Zoom Scroll prevention & Logic
+  // Updated dependency array to rely on generatedImage existence rather than just current ref
   useEffect(() => {
     const element = imageWrapperRef.current;
-    if (!element) return;
+    if (!element) return; // If image isn't generated yet, this exits.
 
+    // Ensure we are adding non-passive listener to prevent scroll
     const handleWheelNative = (e: WheelEvent) => {
-        e.preventDefault();
-        const scaleAmount = -e.deltaY * 0.001;
-        if (!isTargetMode) { // Only zoom if not in target mode (simplifies interaction)
+        if (!isTargetMode) { 
+            e.preventDefault(); // Only prevent default if zooming
+            const scaleAmount = -e.deltaY * 0.001;
             setZoom(prev => Math.min(Math.max(0.5, prev + scaleAmount), 5));
         }
     };
@@ -685,7 +768,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
     return () => {
         element.removeEventListener('wheel', handleWheelNative);
     };
-  }, [imageWrapperRef.current, isTargetMode]); 
+  }, [generatedImage, isTargetMode]); 
 
   // History Management
   const updateHistory = (newImage: GeneratedImage, isNewGeneration: boolean = false) => {
@@ -728,8 +811,17 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       }
   }
 
+  const handleAuthSubmit = () => {
+      setShowAuthModal(false);
+      setError(null); // Clear thematic error
+      logToConsole("AUTH KEY UPDATED. RETRY OPERATION.", 'success');
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim() && !uploadedImage) return;
+
+    // --- RATE LIMIT CHECK ---
+    if (!checkRateLimit()) return;
     
     setIsLoading(true);
     setProcessingMessage("INITIATING SYNTHESIS...");
@@ -746,7 +838,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       const image = await generateImage(
         prompt, 
         { ...options, aspectRatio: finalRatio },
-        uploadedImage || undefined
+        uploadedImage || undefined,
+        customApiKey
       );
       
       // Store clean version before watermark
@@ -761,16 +854,39 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       };
 
       updateHistory(finalImage, true);
+      incrementRateLimit(); // RECORD USAGE
       logToConsole("GENERATION COMPLETE. IMAGE RENDERED.", 'success');
       
     } catch (err: any) {
       console.error(err);
-      logToConsole(`CRITICAL ERROR: ${JSON.stringify(err)}`, 'error');
-      triggerCriticalError(); // TRIGGER RED THEME
-      
-      // Pick random thematic error
-      const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
-      setError(randomError);
+      let errorMsg = "";
+      if (typeof err === 'object') {
+          try {
+             errorMsg = JSON.stringify(err);
+          } catch {
+             errorMsg = String(err);
+          }
+      } else {
+          errorMsg = String(err);
+      }
+
+      // Check for specific API errors
+      if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+           logToConsole(`FATAL ERROR (403): ${errorMsg}`, 'error');
+           logToConsole("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED", 'warn');
+           setError("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED");
+           setShowAuthModal(true); // TRIGGER AUTH MODAL
+      } else if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED")) {
+           logToConsole(`FATAL ERROR (429): ${errorMsg}`, 'error');
+           setError("SYSTEM OVERLOAD (429): API RATE LIMIT EXCEEDED.");
+      } else {
+           // Fallback to thematic for unknown errors
+           logToConsole(`RUNTIME ERROR: ${errorMsg}`, 'error');
+           const thematic = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
+           setError(thematic);
+      }
+
+      triggerCriticalError(); 
     } finally {
       setIsLoading(false);
       setProcessingMessage("");
@@ -779,6 +895,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   const handleEdit = async () => {
     if (!generatedImage || !editPrompt.trim()) return;
+    
+    // --- RATE LIMIT CHECK ---
+    if (!checkRateLimit()) return;
     
     setIsLoading(true);
     setProcessingMessage("MODULATING VISUAL DATA...");
@@ -804,7 +923,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
           base64: generatedImage.cleanBase64 || generatedImage.base64
       };
 
-      const image = await editImage(sourceImage, finalPrompt, options);
+      const image = await editImage(sourceImage, finalPrompt, options, customApiKey);
       
       // Store new clean version
       const cleanBase64 = image.base64;
@@ -818,6 +937,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       };
 
       updateHistory(finalImage);
+      incrementRateLimit(); // RECORD USAGE
       setEditPrompt('');
       if (!options.customRatioValue) {
           setSelectionBox(null);
@@ -826,10 +946,22 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       logToConsole("EDIT COMPLETE. MATRIX UPDATED.", 'success');
     } catch (err: any) {
       console.error(err);
-      logToConsole(`EDIT ERROR: ${JSON.stringify(err)}`, 'error');
-      triggerCriticalError(); // TRIGGER RED THEME
-      const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
-      setError(randomError);
+      
+      let errorMsg = "";
+      if (typeof err === 'object') {
+          try { errorMsg = JSON.stringify(err); } catch { errorMsg = String(err); }
+      } else { errorMsg = String(err); }
+
+      if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+           logToConsole(`FATAL ERROR (403): ${errorMsg}`, 'error');
+           setError("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED");
+           setShowAuthModal(true);
+      } else {
+           logToConsole(`EDIT ERROR: ${errorMsg}`, 'error');
+           setError(THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)]);
+      }
+
+      triggerCriticalError(); 
     } finally {
       setIsLoading(false);
       setProcessingMessage("");
@@ -838,6 +970,10 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
 
   const handleOutpaint = async () => {
     if (!generatedImage) return;
+
+    // --- RATE LIMIT CHECK ---
+    if (!checkRateLimit()) return;
+    
     setIsLoading(true);
     setProcessingMessage("EXPANDING CANVAS BOUNDARIES...");
     
@@ -857,7 +993,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       updateHistory(extendedImage);
       
       // Now ask AI to fill it (using the extended image which is clean)
-      const filledImage = await editImage(extendedImage, "Seamlessly extend the scene into the empty dark area, matching the style and lighting of the central image.", options);
+      const filledImage = await editImage(extendedImage, "Seamlessly extend the scene into the empty dark area, matching the style and lighting of the central image.", options, customApiKey);
       
       const filledClean = filledImage.base64;
 
@@ -870,12 +1006,23 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       };
 
       updateHistory(finalImage); // Update again with filled version
+      incrementRateLimit(); // RECORD USAGE
       logToConsole("OUTPAINTING COMPLETE. HORIZON EXPANDED.", 'success');
     } catch (err: any) {
-       logToConsole(`OUTPAINT ERROR: ${JSON.stringify(err)}`, 'error');
-       triggerCriticalError(); // TRIGGER RED THEME
-       const randomError = THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)];
-       setError(randomError);
+       console.error(err);
+       let errorMsg = "";
+       try { errorMsg = JSON.stringify(err); } catch { errorMsg = String(err); }
+       
+       if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+           logToConsole(`FATAL ERROR (403): ${errorMsg}`, 'error');
+           setError("SECURITY PROTOCOL ACTIVATED: AUTHORIZATION REQUIRED");
+           setShowAuthModal(true);
+       } else {
+           logToConsole(`OUTPAINT ERROR: ${errorMsg}`, 'error');
+           setError(THEMATIC_ERRORS[Math.floor(Math.random() * THEMATIC_ERRORS.length)]);
+       }
+
+       triggerCriticalError();
     } finally {
       setIsLoading(false);
     }
@@ -1006,6 +1153,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
   return (
     <div className="min-h-screen bg-transparent text-white font-sans selection:bg-cyan-500/30 selection:text-cyan-100 overflow-x-hidden pb-20">
       
+      {/* Toast Notification Container */}
+      <Toast message={toastState.message} visible={toastState.visible} />
+
       {/* --- HEADER --- */}
       <header className="pt-8 pb-6 px-6 md:px-12 flex flex-col md:flex-row justify-between items-center animate-slide-down relative gap-4 md:gap-0">
         {/* Header Left: Logo/Title - Wrapped for Flex Layout */}
@@ -1063,7 +1213,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       {/* Desktop: Absolute Center (Top-12) | Mobile: Static Block with Margin */}
       <div className="mt-6 md:mt-0 md:absolute md:top-12 md:left-1/2 md:-translate-x-1/2 z-50 flex justify-center w-full pointer-events-none">
           <div className="bg-slate-900/80 border border-yellow-500/30 px-4 py-1 rounded-full backdrop-blur-md shadow-[0_0_15px_rgba(234,179,8,0.1)] pointer-events-auto">
-              <span className="text-[10px] text-yellow-500 font-mono font-bold tracking-widest">⚡ POWERED BY NSD-CORE/17B</span>
+              <span className="text-[10px] text-yellow-500 font-mono font-bold tracking-widest">POWERED BY NSD-CORE/70B</span>
           </div>
       </div>
 
@@ -1144,7 +1294,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                         onClick={async () => {
                            if(!prompt) return;
                            logToConsole("REQUESTING AI SUGGESTIONS...", 'info');
-                           const sugs = await getPromptEnhancements(prompt);
+                           const sugs = await getPromptEnhancements(prompt, customApiKey);
                            setSuggestions(sugs);
                            setShowSuggestions(true);
                            logToConsole(`RECEIVED ${sugs.length} SUGGESTIONS`, 'success');
@@ -1188,10 +1338,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                     onChange={(e) => setOptions({ ...options, model: e.target.value as AIModel })}
                     className="w-full appearance-none bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-xs font-mono text-cyan-100 outline-none focus:border-cyan-500 transition-all cursor-pointer hover:bg-slate-800"
                   >
-                    <option value={AIModel.FLASH}>UMBRAX-IRIS_5.1</option>
-                    <option value={AIModel.IMAGEN}>UMBRX-GEN_2.5</option>
-                    <option value={AIModel.EXP_FLASH}>UMBRAX-BETA_2.0 (EXP)</option>
-                    <option value={AIModel.PRO_IMAGE}>UMBRAX-PRIME_3.0 (PRE)</option>
+                    <option value={AIModel.FLASH}>NSD-CORE/70B (IRIS)</option>
+                    <option value={AIModel.IMAGEN}>NSD-GEN/2.5</option>
+                    <option value={AIModel.PRO_IMAGE}>NSD-QUANTUM/3.0 (ULTRA)</option>
                   </select>
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -1353,10 +1502,10 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
             
             {/* Error State - REVERTED TO THEMATIC */}
             {error && !isLoading && (
-                <div className="text-center max-w-lg px-6">
+                <div className="text-center max-w-lg px-6 flex flex-col items-center">
                    <div className="text-red-500 text-4xl mb-4">⚠</div>
                    <h3 className="text-red-400 font-bold tracking-widest uppercase mb-2">System Error</h3>
-                   <p className="text-red-300/70 font-mono text-sm">{error}</p>
+                   <p className="text-red-300/70 font-mono text-sm mb-6">{error}</p>
                 </div>
             )}
 
@@ -1500,6 +1649,51 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
       
       {/* --- PORTALS --- */}
       
+      {/* AUTH MODAL */}
+      {showAuthModal && createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+              <div className="w-full max-w-sm bg-slate-900 border border-red-500/50 rounded-xl p-6 shadow-[0_0_50px_rgba(239,68,68,0.2)] relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-amber-500"></div>
+                  
+                  <div className="flex items-center gap-3 mb-4 text-red-500">
+                      <svg className="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                      <h3 className="text-sm font-bold tracking-widest uppercase">Security Clearance Required</h3>
+                  </div>
+                  
+                  <p className="text-slate-400 text-xs mb-6 font-mono leading-relaxed">
+                      Neural link requires Level 5 Authorization Code to access Quantum Models. 
+                      Please verify credentials.
+                  </p>
+                  
+                  <div className="space-y-4">
+                      <div className="relative group">
+                          <label className="text-[10px] text-red-400 uppercase font-bold mb-1 block tracking-wider">Authorization Code</label>
+                          <input 
+                            type="password"
+                            value={customApiKey}
+                            defaultValue={username === 'nsdadmin' && !customApiKey ? ADMIN_KEY : customApiKey}
+                            onChange={(e) => setCustomApiKey(e.target.value)}
+                            placeholder="ENTER_API_KEY_SEQUENCE"
+                            className="w-full bg-black/50 border border-red-900/50 rounded p-3 text-white text-xs font-mono focus:border-red-500 outline-none tracking-wider placeholder-red-900/50"
+                            autoFocus
+                          />
+                      </div>
+                      
+                      <div className="flex justify-end gap-3 pt-2">
+                          <button onClick={() => setShowAuthModal(false)} className="px-4 py-2 text-slate-500 hover:text-white text-xs uppercase tracking-widest">Abort</button>
+                          <button 
+                            onClick={handleAuthSubmit}
+                            className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded text-xs uppercase tracking-widest shadow-[0_0_15px_rgba(220,38,38,0.4)] flex items-center gap-2"
+                          >
+                              Authorize
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>,
+          document.body
+      )}
+
       {/* CONSOLE OVERLAY */}
       {isConsoleOpen && createPortal(
           <div 
@@ -1640,10 +1834,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
                 {/* Dynamic Model Name Display */}
                 <span className="hidden md:inline">
                     MODEL: {
-                        options.model === AIModel.FLASH ? "UMBRAX-IRIS_5.1" :
-                        options.model === AIModel.IMAGEN ? "UMBRX-GEN_2.5" :
-                        options.model === AIModel.EXP_FLASH ? "UMBRAX-BETA_2.0" :
-                        "UMBRAX-PRIME_3.0"
+                        options.model === AIModel.FLASH ? "NSD-CORE/70B (IRIS)" :
+                        options.model === AIModel.IMAGEN ? "NSD-GEN/2.5" :
+                        "NSD-QUANTUM/3.0 (ULTRA)"
                     }
                 </span>
                 <span className="hidden md:inline text-slate-700">|</span>
@@ -1653,6 +1846,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialId }) => {
             </div>
             
             <div className="flex items-center gap-4">
+                <a href="https://fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:flex items-center gap-2 text-[10px] text-[#8b5bf5] hover:text-[#a78bfa] transition-all font-bold tracking-widest hover:shadow-[0_0_15px_rgba(139,91,245,0.4)]">
+                    POWERED BY NSD-CORE/70B
+                </a>
                 <span className="opacity-70">ID: {initialId || defaultId}</span>
                 {/* Terminal Toggle - Right Side */}
                 <button 
