@@ -829,8 +829,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
           logToConsole("IDENTITY VERIFIED. ENCRYPTION KEYS ROTATED.", 'success');
           // Optional: Auto-retry logic could go here, but for now we let the user click Initiate again
       } else {
-          setAuthModalError("ACCESS DENIED: KEY INVALID OR EXPIRED");
-          logToConsole("AUTH FAILURE: CREDENTIALS REJECTED BY HOST", 'error');
+          setAuthModalError("ACCESS DENIED: KEY REJECTED");
+          logToConsole("AUTH FAILURE: KEY SIGNATURE MISMATCH OR REJECTED BY HOST", 'error');
       }
       setIsVerifyingAuth(false);
   };
@@ -1863,8 +1863,8 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
 
       {/* --- FOOTER (PORTAL TO BODY FOR FIXED POS) --- */}
       {createPortal(
-        <div className={`fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-4 md:px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest transition-opacity duration-500 ${isVoidMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-            <div className="flex items-center gap-2 md:gap-4">
+        <div className={`fixed bottom-0 left-0 right-0 z-40 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-4 md:px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest transition-opacity duration-500 ${isVoidMode ? 'opacity-0 pointer-events-none' : 'opacity-100'} whitespace-nowrap overflow-hidden`}>
+            <div className="flex items-center gap-2 md:gap-4 shrink-0">
                 <span className="flex items-center gap-2">
                    {isLoading ? (
                        <span className="relative flex h-2 w-2">
@@ -1881,7 +1881,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
                 </span>
                 <span className="hidden md:inline text-slate-700">|</span>
                 {/* Dynamic Model Name Display */}
-                <span className="hidden md:inline">
+                <span className="hidden md:inline shrink-0">
                     MODEL: {
                         options.model === AIModel.FLASH ? "NSD-CORE/70B (IRIS)" :
                         options.model === AIModel.IMAGEN ? "NSD-GEN/2.5" :
@@ -1889,12 +1889,17 @@ const Generator: React.FC<GeneratorProps> = ({ initialId, username }) => {
                     }
                 </span>
                 <span className="hidden md:inline text-slate-700">|</span>
-                <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
-                    F&Q // SYNTHESIS CORE
-                </a>
+                <span className="hidden md:flex text-red-500 font-bold tracking-tight text-[9px] select-text cursor-help items-center gap-2 overflow-hidden text-ellipsis">
+                    CONTACT: 
+                    <span className="text-white hover:text-cyan-400 transition-colors">nsd@fearyour.life</span> / 
+                    <span className="text-[#5865F2] hover:text-white transition-colors flex items-center gap-1">
+                        0_nsd 
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.772-.6083 1.1588a18.2915 18.2915 0 00-7.4858 0c-.1636-.3868-.3973-.7835-.6128-1.1588a.0771.0771 0 00-.0785-.0371 19.718 19.718 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.419-2.1569 2.419zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.419-2.1568 2.419z"/></svg>
+                    </span>
+                </span>
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 shrink-0">
                 <a href="https://fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:flex items-center gap-2 text-[10px] text-[#8b5bf5] hover:text-[#a78bfa] transition-all font-bold tracking-widest hover:shadow-[0_0_15px_rgba(139,91,245,0.4)]">
                     POWERED BY NSD-CORE/70B
                 </a>

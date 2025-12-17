@@ -18,14 +18,28 @@ const getValidApiRatio = (ratio: string): string => {
 };
 
 export const validateCredentials = async (apiKey: string): Promise<boolean> => {
+    // 1. Strict Format Validation
+    // Google API Keys typically start with "AIza" and are 39 characters long.
+    // We allow a bit of flexibility in length just in case, but the prefix is strict.
+    if (!apiKey || !apiKey.startsWith("AIza") || apiKey.length < 30) {
+        console.warn("Validation failed: Key does not match Google API Key signature.");
+        return false;
+    }
+
     try {
         const ai = new GoogleGenAI({ apiKey });
-        // Try a very cheap/fast call to verify the key works
-        await ai.models.generateContent({
+        // 2. Functional Validation (Network Call)
+        // Using a lightweight model to ping the service
+        const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: "test",
+            contents: "ping",
         });
-        return true;
+        
+        // 3. Response Validation
+        if (response && (response.text || response.candidates?.length > 0)) {
+            return true;
+        }
+        return false;
     } catch (e) {
         console.error("Credential validation failed:", e);
         return false;

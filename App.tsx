@@ -3,6 +3,38 @@ import React, { useState, useEffect, useRef } from 'react';
 import Intro from './components/Intro';
 import Generator from './components/Generator';
 
+// --- COMPONENT: RESTRICTED ACCESS TOAST ---
+interface ToastProps {
+  show: boolean;
+  onClose: () => void;
+}
+
+const RestrictedAccessToast: React.FC<ToastProps> = ({ show, onClose }) => {
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start pt-[20vh] pointer-events-none">
+      <div className="pointer-events-auto w-auto max-w-[90vw] animate-fade-in-up">
+        <div 
+          className="bg-red-950/90 border border-red-500/50 backdrop-blur-md text-red-200 px-8 py-6 rounded-xl shadow-[0_0_50px_rgba(220,38,38,0.4)] flex flex-col items-center justify-center gap-4 text-center cursor-pointer group hover:bg-red-900/40 transition-colors"
+          onClick={onClose}
+          title="Click to dismiss"
+        >
+           <div className="p-3 bg-red-900/50 rounded-full shrink-0 animate-pulse">
+              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+           </div>
+           <div className="flex flex-col items-center">
+               <h4 className="text-red-400 font-bold uppercase tracking-widest text-sm mb-2">Authorization Protocol</h4>
+               <p className="font-mono text-xs md:text-sm leading-relaxed max-w-lg">
+                  Access to this gated model is restricted. Authorization required. For inquiries, contact <span className="text-white font-bold hover:text-cyan-400 transition-colors bg-white/10 px-1 rounded mx-1">nsd@fearyour.life</span> or <span className="text-[#5865F2] font-bold hover:text-white transition-colors bg-[#5865F2]/10 px-1 rounded mx-1 inline-flex items-center gap-1">0_nsd <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.772-.6083 1.1588a18.2915 18.2915 0 00-7.4858 0c-.1636-.3868-.3973-.7835-.6128-1.1588a.0771.0771 0 00-.0785-.0371 19.718 19.718 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.419-2.1569 2.419zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.419-2.1568 2.419z"/></svg></span> on Discord.
+               </p>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- TRANSITION COMPONENT 1: BOOT SEQUENCE (Landing -> Login) ---
 const BootSequence: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [progress, setProgress] = useState(0);
@@ -99,6 +131,9 @@ const App: React.FC = () => {
   
   // Scroll State
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Toast State
+  const [showRestrictedToast, setShowRestrictedToast] = useState(false);
   
   // Generate a random session ID on mount
   const [sessionId] = useState(() => Math.floor(10000000000 + Math.random() * 90000000000).toString());
@@ -256,6 +291,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleIntroComplete = () => {
+    setShowRestrictedToast(true);
     setViewState('BOOT');
   };
 
@@ -272,6 +308,7 @@ const App: React.FC = () => {
       setIsExitingLogin(true); // Trigger exit animation
       setTimeout(() => {
         setViewState('APP');
+        setShowRestrictedToast(false); // Hide toast if still visible
       }, 800); // Wait for dissolve animation
     } else {
       setAuthError(true);
@@ -281,6 +318,9 @@ const App: React.FC = () => {
 
   return (
     <>
+    {/* Global Restricted Access Toast - Controlled */}
+    <RestrictedAccessToast show={showRestrictedToast} onClose={() => setShowRestrictedToast(false)} />
+
     {/* Cursor Trail Canvas */}
     <canvas id="cursor-canvas"></canvas>
 
@@ -411,9 +451,9 @@ const App: React.FC = () => {
         
     {/* Persistent Footer for Non-App Views */}
     {viewState !== 'APP' && (
-            <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#020617]/90 border-t border-white/10 backdrop-blur-md px-6 py-2 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest whitespace-nowrap overflow-hidden">
             <div className="flex items-center gap-4">
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 shrink-0">
                     <span className="relative flex h-2 w-2">
                         <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
@@ -421,19 +461,23 @@ const App: React.FC = () => {
                     SYSTEM READY
                 </span>
                 <span className="hidden md:inline text-slate-700">|</span>
-                <span className="hidden md:inline">MODEL: NSD-CORE/70B (IRIS)</span>
+                <span className="hidden md:inline shrink-0">MODEL: NSD-CORE/70B (IRIS)</span>
                 <span className="hidden md:inline text-slate-700">|</span>
-                <a href="https://app.fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:inline text-amber-400 hover:text-amber-300 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)] transition-all cursor-pointer">
-                    F&Q // SYNTHESIS CORE
-                </a>
+                <span className="hidden md:flex text-red-500 font-bold tracking-tight text-[9px] select-text cursor-help items-center gap-2 overflow-hidden text-ellipsis">
+                    CONTACT: 
+                    <span className="text-white hover:text-cyan-400 transition-colors">nsd@fearyour.life</span> / 
+                    <span className="text-[#5865F2] hover:text-white transition-colors flex items-center gap-1">
+                        0_nsd 
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.772-.6083 1.1588a18.2915 18.2915 0 00-7.4858 0c-.1636-.3868-.3973-.7835-.6128-1.1588a.0771.0771 0 00-.0785-.0371 19.718 19.718 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.419-2.1569 2.419zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.419-2.1568 2.419z"/></svg>
+                    </span>
+                </span>
             </div>
-            <div className="flex items-center gap-4">
-                 <a href="https://fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:flex items-center gap-2 text-[10px] text-[#8b5bf5] hover:text-[#a78bfa] transition-all font-bold tracking-widest hover:shadow-[0_0_15px_rgba(139,91,245,0.4)]">
+            
+            <div className="flex items-center gap-4 shrink-0">
+                <a href="https://fearyour.life/" target="_blank" rel="noreferrer" className="hidden md:flex items-center gap-2 text-[10px] text-[#8b5bf5] hover:text-[#a78bfa] transition-all font-bold tracking-widest hover:shadow-[0_0_15px_rgba(139,91,245,0.4)]">
                     POWERED BY NSD-CORE/70B
                 </a>
-                <span className="opacity-70">
-                    ID: {sessionId}
-                </span>
+                <span className="opacity-70">ID: {sessionId}</span>
             </div>
         </div>
     )}
