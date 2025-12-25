@@ -2,9 +2,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { GenerationOptions, GeneratedImage, AIModel, AspectRatio, Aesthetic } from "../types";
 
-const getClient = () => {
-  // Always use the system-provided API key
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getClient = (customKey?: string) => {
+  const apiKey = customKey;
+  if (!apiKey) {
+    throw new Error("API_KEY_MISSING");
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 // Helper to map custom/UI ratios to API valid ratios
@@ -14,9 +17,38 @@ const getValidApiRatio = (ratio: string): string => {
   return "1:1"; // Fallback for custom
 };
 
-export const getPromptEnhancements = async (currentPrompt: string): Promise<string[]> => {
+export const validateCredentials = async (apiKey: string): Promise<boolean> => {
+    // 1. Strict Format Validation
+    // Google API Keys typically start with "AIza" and are 39 characters long.
+    // We allow a bit of flexibility in length just in case, but the prefix is strict.
+    if (!apiKey || !apiKey.startsWith("AIza") || apiKey.length < 30) {
+        console.warn("Validation failed: Key does not match Google API Key signature.");
+        return false;
+    }
+
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        // 2. Functional Validation (Network Call)
+        // Using a lightweight model to ping the service
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: "ping",
+        });
+        
+        // 3. Response Validation
+        if (response && (response.text || response.candidates?.length > 0)) {
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.error("Credential validation failed:", e);
+        return false;
+    }
+};
+
+export const getPromptEnhancements = async (currentPrompt: string, apiKey?: string): Promise<string[]> => {
   try {
-    const ai = getClient();
+    const ai = getClient(apiKey);
     const model = "gemini-2.5-flash"; 
 
     const prompt = `
@@ -50,9 +82,10 @@ export const getPromptEnhancements = async (currentPrompt: string): Promise<stri
 export const generateImage = async (
   prompt: string,
   options: GenerationOptions,
-  inputImage?: string // Base64 string (no prefix)
+  inputImage?: string, // Base64 string (no prefix)
+  apiKey?: string // Optional override
 ): Promise<GeneratedImage> => {
-  const ai = getClient();
+  const ai = getClient(apiKey);
   
   // Only append specific configuration if not General
   const aestheticConfig = options.aesthetic === Aesthetic.GENERAL 
@@ -160,9 +193,10 @@ export const generateImage = async (
 export const editImage = async (
   currentImage: GeneratedImage,
   editInstruction: string,
-  options: GenerationOptions
+  options: GenerationOptions,
+  apiKey?: string
 ): Promise<GeneratedImage> => {
-  const ai = getClient();
+  const ai = getClient(apiKey);
 
   if (options.model === AIModel.IMAGEN) {
       throw new Error("Edit/Inpainting functions are currently optimized for UMBRAX (Gemini) models only.");
